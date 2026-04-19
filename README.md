@@ -1,4 +1,4 @@
-# FlowState AI
+# Venue
 
 AI-powered real-time crowd intelligence system that predicts, prevents, and optimizes crowd flow before congestion becomes a risk.
 
