@@ -12,6 +12,9 @@ export function Header() {
   const setVenue = useStore((s) => s.setVenue);
   const deleteCustomVenue = useStore((s) => s.deleteCustomVenue);
   const isSimulating = useStore((s) => s.isSimulating);
+  const simulationSecondsRemaining = useStore(
+    (s) => s.simulationSecondsRemaining,
+  );
   const startSimulation = useStore((s) => s.startSimulation);
   const systemHealth = useStore((s) => s.systemHealth);
   const lastDataUpdate = useStore((s) => s.lastDataUpdate);
@@ -86,8 +89,7 @@ export function Header() {
           Operations Dashboard
         </h1>
         <p className="text-xl text-cyan-400/85 mt-2 font-medium max-w-[680px] leading-snug">
-          FlowState AI monitors, predicts, and prevents crowd risks in real
-          time.
+          Venue monitors, predicts, and prevents crowd risks in real time.
         </p>
         <div className="mt-3">
           <AIStatusRotator />
@@ -226,7 +228,9 @@ export function Header() {
               title="Inject real-world scenario into system"
             >
               <span>
-                {isSimulating ? "Scenario Running" : "Simulate Event"}
+                {isSimulating
+                  ? `Scenario Running · ${simulationSecondsRemaining}s`
+                  : "Simulate Event"}
               </span>
               {!isSimulating && <span className="text-[11px]">▼</span>}
             </button>

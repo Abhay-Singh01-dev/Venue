@@ -37,7 +37,7 @@ export function Sidebar() {
           </div>
           <div>
             <div className="text-lg font-semibold text-white leading-none tracking-tight">
-              FlowState AI
+              Venue
             </div>
             <div className="text-[11px] text-slate-500 font-medium tracking-[0.14em] mt-1">
               STADIUM OPS

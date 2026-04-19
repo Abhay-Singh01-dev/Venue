@@ -16,7 +16,7 @@ class Settings(BaseSettings):
     simulation_speed: float = 5.0
     cors_origins: Any = ["http://localhost:5173"]
     log_level: str = "INFO"
-    port: int = 8000
+    port: int = 8080
 
     model_config = SettingsConfigDict(
         env_file=".env",

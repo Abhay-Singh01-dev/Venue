@@ -18,6 +18,26 @@ router = APIRouter(prefix="/simulation", tags=["simulation"])
 
 _synthetic_is_paused = True
 
+
+def _to_float(value: object, default: float = 0.0) -> float:
+    """Coerce mixed numeric payloads to float for response-model safety."""
+    if value is None:
+        return default
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _to_int(value: object, default: int = 0) -> int:
+    """Coerce mixed numeric payloads to int for response-model safety."""
+    if value is None:
+        return default
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
 class PhaseRequest(BaseModel):
     phase: str  # pre_match|first_half|halftime|second_half|final_whistle
 
@@ -85,15 +105,15 @@ async def get_simulation_status() -> dict:
             "message": status_data.get("message"),
             "phase": phase,
             "phase_display": status_data.get("phase_display") or str(phase).replace("_", " ").title(),
-            "simulated_minutes": simulated_minutes,
-            "simulation_progress_pct": status_data.get("simulation_progress_pct", 0.0),
+            "simulated_minutes": _to_float(simulated_minutes, 0.0),
+            "simulation_progress_pct": _to_float(status_data.get("simulation_progress_pct", 0.0), 0.0),
             "is_paused": is_paused,
             "status": status_data.get("status") or ("paused" if is_paused else "running"),
             "runner_id": status_data.get("runner_id") or heartbeat_data.get("runner_id"),
             "last_seen": status_data.get("last_seen") or heartbeat_data.get("last_seen") or datetime.datetime.now(datetime.timezone.utc).isoformat(),
-            "cycles_completed": cycles_completed,
+            "cycles_completed": _to_int(cycles_completed, 0),
             "current_phase": status_data.get("current_phase") or heartbeat_data.get("current_phase") or phase,
-            "simulation_speed": simulation_speed,
+            "simulation_speed": _to_float(simulation_speed, 90.0),
         }
     except Exception as e:
         logger.error(f"GET /simulation/status failed: {e}", exc_info=True)
@@ -185,16 +205,16 @@ async def get_simulation_heartbeat() -> dict:
         if not doc.exists:
             return {"status": "no heartbeat yet", 
                     "message": "Simulation may still be starting"}
-        data = doc.to_dict()
+        data = doc.to_dict() or {}
         last_seen = data.get("last_seen", "")
         return {
             "status": "running" if not data.get("is_paused") else "paused",
             "runner_id": data.get("runner_id"),
             "last_seen": last_seen,
-            "cycles_completed": data.get("cycles_completed", 0),
+            "cycles_completed": _to_int(data.get("cycles_completed", 0), 0),
             "current_phase": data.get("current_phase"),
-            "simulated_minutes": data.get("simulated_minutes"),
-            "simulation_speed": data.get("simulation_speed"),
+            "simulated_minutes": _to_float(data.get("simulated_minutes"), 0.0),
+            "simulation_speed": _to_float(data.get("simulation_speed"), 90.0),
             "is_paused": data.get("is_paused", True)
         }
     except Exception as e:

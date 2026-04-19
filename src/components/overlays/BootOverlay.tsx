@@ -55,7 +55,7 @@ export function BootOverlay() {
       >
         {/* Header */}
         <div className="mb-8">
-          <h1 className="text-xl font-bold text-white mb-1">FlowState AI</h1>
+          <h1 className="text-xl font-bold text-white mb-1">Venue</h1>
           <p className="text-sm text-cyan-400 font-medium tracking-wide">
             Initializing...
           </p>

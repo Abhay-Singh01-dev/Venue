@@ -213,7 +213,7 @@ class SimulationStatusResponse(BaseModel):
     message: str | None = None
     phase: str | None = None
     phase_display: str | None = None
-    simulated_minutes: int | None = None
+    simulated_minutes: float | None = None
     simulation_progress_pct: float | None = None
     is_paused: bool | None = None
     status: str | None = None

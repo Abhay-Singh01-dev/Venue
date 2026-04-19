@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from starlette.websockets import WebSocketState
 
 from app.core.settings import settings
 from app.firebase_client import db
@@ -229,13 +230,17 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                 "confidence_overall": pipeline.get("confidence_overall", 0),
             }
             
-        await manager.send_snapshot(websocket, {
+        snapshot_sent = await manager.send_snapshot(websocket, {
             "zones": zones,
             "pipeline": optimized_pipeline,
             "connected_at": datetime.now(timezone.utc).isoformat(),
         })
+        if not snapshot_sent:
+            return
         
         while True:
+            if websocket.client_state != WebSocketState.CONNECTED:
+                break
             try:
                 data = await asyncio.wait_for(websocket.receive_text(), timeout=30)
                 if data == "ping":
@@ -245,6 +250,10 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                 pass
             except WebSocketDisconnect:
                 break
+            except RuntimeError as e:
+                if "not connected" in str(e).lower():
+                    break
+                raise
     finally:
         await manager.disconnect(websocket)
 

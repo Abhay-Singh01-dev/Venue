@@ -35,7 +35,7 @@ class ConnectionManager:
             self.active_connections.discard(websocket)
         logger.info(f"WebSocket disconnected. Total: {len(self.active_connections)}")
     
-    async def send_snapshot(self, websocket: WebSocket, snapshot: dict) -> None:
+    async def send_snapshot(self, websocket: WebSocket, snapshot: dict) -> bool:
         """Sends full state snapshot to a single newly-connected client."""
         try:
             await websocket.send_text(json.dumps({
@@ -43,9 +43,11 @@ class ConnectionManager:
                 "data": snapshot,
                 "timestamp": datetime.now(timezone.utc).isoformat(),
             }, default=str))
+            return True
         except Exception as e:
             logger.error(f"Snapshot send failed: {e}")
             await self.disconnect(websocket)
+            return False
     
     def _should_broadcast_zone(self, zone_id: str, new_state: dict) -> bool:
         """

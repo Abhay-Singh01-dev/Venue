@@ -54,13 +54,23 @@ class FirebaseClient:
                 # Do not fail hard here: Cloud Run may rely on ADC instead of explicit secrets.
                 logger.error("Invalid base64 Firebase credentials provided in environment variable.")
 
-        # 3. Fall back to Application Default Credentials (Cloud Run / GCE)
+        # 3. Fall back to Application Default Credentials only on Cloud Run.
+        # Local development should not silently use gcloud user ADC because
+        # that commonly causes noisy PERMISSION_DENIED loops when Firestore
+        # IAM is not configured for the local identity.
+        is_cloud_run = bool(os.getenv("K_SERVICE"))
         if not cred:
-            try:
-                cred = credentials.ApplicationDefault()
-                logger.info("Initializing Firebase using Application Default Credentials.")
-            except Exception:
-                logger.error("Application Default Credentials are unavailable.")
+            if is_cloud_run:
+                try:
+                    cred = credentials.ApplicationDefault()
+                    logger.info("Initializing Firebase using Application Default Credentials.")
+                except Exception:
+                    logger.error("Application Default Credentials are unavailable.")
+            else:
+                logger.info(
+                    "Skipping ADC fallback outside Cloud Run. "
+                    "Set FIREBASE_CREDENTIALS_PATH or FIREBASE_CREDENTIALS_BASE64 for local Firestore access."
+                )
 
         # 4. Fail if neither worked
         if not cred:

@@ -123,6 +123,7 @@ interface FlowStateStore {
   predictionMode: "current" | "predicted";
   aiCycleCountdown: number;
   isSimulating: boolean;
+  simulationSecondsRemaining: number;
 
   // System Health & Transparency (PHASE 1-2)
   systemHealth: "healthy" | "degraded" | "offline";
@@ -169,6 +170,8 @@ let backendPollHandle: ReturnType<typeof setInterval> | null = null;
 let latestBackendSnapshot: BackendSnapshot | null = null;
 let backendBridgeStopping = false;
 let simulationAutoPauseHandle: ReturnType<typeof setTimeout> | null = null;
+let simulationCountdownHandle: ReturnType<typeof setInterval> | null = null;
+let simulationUiLocked = false;
 let storeSet: any = null;
 let storeGet: any = null;
 const EDIT_CANVAS_SHIFT_X = 150;
@@ -199,7 +202,7 @@ const BACKEND_ZONE_ID_TO_FRONTEND_ID = Object.entries(
 );
 
 const BACKEND_API_URL = (
-  import.meta.env.VITE_API_URL || "http://localhost:8000"
+  import.meta.env.VITE_API_URL || "http://localhost:8080"
 ).replace(/\/$/, "");
 const BACKEND_WS_URL = (
   import.meta.env.VITE_WS_URL || BACKEND_API_URL.replace(/^http/, "ws") + "/ws"
@@ -262,6 +265,13 @@ async function resetBackendSimulation(): Promise<void> {
     method: "POST",
     headers: { "Content-Type": "application/json" },
   });
+}
+
+function clearSimulationCountdown(): void {
+  if (simulationCountdownHandle) {
+    clearInterval(simulationCountdownHandle);
+    simulationCountdownHandle = null;
+  }
 }
 
 function applyBackendSnapshot(snapshot: BackendSnapshot): void {
@@ -409,7 +419,7 @@ async function refreshBackendSnapshot(): Promise<void> {
       typeof heartbeatPayload === "object" &&
       "is_paused" in heartbeatPayload
     ) {
-      if (storeSet) {
+      if (storeSet && !simulationUiLocked) {
         storeSet({ isSimulating: !heartbeatPayload.is_paused });
       }
     }
@@ -452,6 +462,7 @@ export const useStore = create<FlowStateStore>((set, get) => ({
   predictionMode: "current",
   aiCycleCountdown: 30,
   isSimulating: false,
+  simulationSecondsRemaining: 0,
 
   // System Health & Transparency (PHASE 1-2)
   systemHealth: "offline" as const,
@@ -832,7 +843,10 @@ export const useStore = create<FlowStateStore>((set, get) => ({
     if (get().isSimulating) return;
 
     if (get().currentVenueId === "stadium") {
+      simulationUiLocked = true;
+      clearSimulationCountdown();
       set({ isSimulating: true });
+      set({ simulationSecondsRemaining: 60 });
 
       if (simulationAutoPauseHandle) {
         clearTimeout(simulationAutoPauseHandle);
@@ -864,8 +878,21 @@ export const useStore = create<FlowStateStore>((set, get) => ({
           await refreshBackendSnapshot();
 
           if (typeof window !== "undefined") {
+            simulationCountdownHandle = window.setInterval(() => {
+              const secondsRemaining =
+                useStore.getState().simulationSecondsRemaining;
+              if (secondsRemaining <= 1) {
+                clearSimulationCountdown();
+                return;
+              }
+              set({ simulationSecondsRemaining: secondsRemaining - 1 });
+            }, 1000);
+
             simulationAutoPauseHandle = window.setTimeout(() => {
               simulationAutoPauseHandle = null;
+              simulationUiLocked = false;
+              clearSimulationCountdown();
+              set({ simulationSecondsRemaining: 0 });
               void (async () => {
                 try {
                   await setBackendSimulationControl("pause");
@@ -876,9 +903,15 @@ export const useStore = create<FlowStateStore>((set, get) => ({
               })();
             }, 60000);
           } else {
+            simulationUiLocked = false;
+            clearSimulationCountdown();
+            set({ simulationSecondsRemaining: 0 });
             set({ isSimulating: false });
           }
         } catch {
+          simulationUiLocked = false;
+          clearSimulationCountdown();
+          set({ simulationSecondsRemaining: 0 });
           set({ isSimulating: false, backendSyncStatus: "error" });
         }
       })();
@@ -895,9 +928,11 @@ export const useStore = create<FlowStateStore>((set, get) => ({
       clearTimeout(simulationAutoPauseHandle);
       simulationAutoPauseHandle = null;
     }
+    clearSimulationCountdown();
+    simulationUiLocked = false;
 
     if (get().currentVenueId === "stadium") {
-      set({ isSimulating: false });
+      set({ isSimulating: false, simulationSecondsRemaining: 0 });
 
       void (async () => {
         try {
@@ -1007,6 +1042,7 @@ export const useStore = create<FlowStateStore>((set, get) => ({
       backendPollHandle = null;
     }
 
-    set({ backendSyncStatus: "idle" });
+    clearSimulationCountdown();
+    set({ backendSyncStatus: "idle", simulationSecondsRemaining: 0 });
   },
 }));

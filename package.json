@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "dev:backend": "cd backend && venv\\Scripts\\python.exe -m uvicorn app.main:app --host 0.0.0.0 --port 8000",
+    "dev:backend": "cd backend && venv\\Scripts\\python.exe -m uvicorn app.main:app --host 0.0.0.0 --port 8080",
     "dev:sim": "cd backend && venv\\Scripts\\python.exe simulation_runner.py",
     "dev:all": "concurrently -k -n FRONTEND,BACKEND,SIM -c cyan,green,magenta \"npm run dev\" \"npm run dev:backend\" \"npm run dev:sim\"",
     "build": "tsc -b && vite build",
