@@ -137,6 +137,16 @@ export function StadiumSVG({
     return m;
   }, [predictions]);
 
+  const handleZoneKeyDown = (
+    e: React.KeyboardEvent<SVGPathElement | SVGCircleElement>,
+    zoneId: string,
+  ) => {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      onZoneClick(zoneId);
+    }
+  };
+
   return (
     <svg viewBox="0 0 900 550" className="w-full h-full">
       <defs>
@@ -319,12 +329,18 @@ export function StadiumSVG({
               stroke={isSelected ? "#fff" : color}
               strokeWidth={isSelected ? 1.5 : 1}
               className="zone-path cursor-pointer"
+              role="button"
+              tabIndex={0}
+              aria-label={`${zone.name} zone, ${Math.round(zone.capacity)} percent occupancy, risk ${zone.riskLevel}`}
               onClick={(e) => {
                 e.stopPropagation();
                 onZoneClick(gateId);
               }}
+              onKeyDown={(e) => handleZoneKeyDown(e, gateId)}
               onMouseEnter={(e) => onZoneHover(zone, e)}
               onMouseLeave={() => onZoneHover(null)}
+              onFocus={() => onZoneHover(zone)}
+              onBlur={() => onZoneHover(null)}
             />
             {/* Gate label matching stroke color */}
             <text
@@ -451,6 +467,9 @@ export function StadiumSVG({
           stroke={isSelected ? "#fff" : outColor}
           strokeWidth={isSelected ? 1.5 : 1}
           className="zone-path cursor-pointer"
+          role="button"
+          tabIndex={0}
+          aria-label={`${zone.name} zone, ${Math.round(zone.capacity)} percent occupancy, risk ${zone.riskLevel}`}
           style={{
             transition:
               "fill 200ms cubic-bezier(0.34, 1.56, 0.64, 1), stroke 200ms ease, opacity 150ms ease",
@@ -459,8 +478,11 @@ export function StadiumSVG({
             e.stopPropagation();
             onZoneClick(zoneId);
           }}
+          onKeyDown={(e) => handleZoneKeyDown(e, zoneId)}
           onMouseEnter={(e) => onZoneHover(zone, e)}
           onMouseLeave={() => onZoneHover(null)}
+          onFocus={() => onZoneHover(zone)}
+          onBlur={() => onZoneHover(null)}
         />
       </g>
     );

@@ -112,6 +112,12 @@ def test_simulation_heartbeat_contract(client: TestClient) -> None:
     assert isinstance(payload.get("simulation_speed"), (int, float))
 
 
+def test_simulation_phase_rejects_invalid_input(client: TestClient) -> None:
+    """Simulation phase endpoint should reject unknown phase values."""
+    response = client.post("/simulation/phase", json={"phase": "not_a_real_phase"})
+    assert response.status_code == 400
+
+
 def test_prediction_result_confidence_contract() -> None:
     """Prediction confidence should remain normalized to the 0..1 contract."""
     prediction = PredictionResult(

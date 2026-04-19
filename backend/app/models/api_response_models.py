@@ -268,6 +268,9 @@ class HealthResponse(BaseModel):
     mode: str | None = None
     status: str
     timestamp: str | None = None
+    ai: str | None = None
+    database: str | None = None
+    deployment: str | None = None
     simulation: str | None = None
     simulation_phase: str | None = None
     simulation_cycles: int | None = None
@@ -320,10 +323,23 @@ class LogsRecentResponse(BaseModel):
 class SystemInfoResponse(BaseModel):
     """Response for GET /system/info."""
 
+    platform: str = "FlowState AI"
+    google_services: dict[str, str] = Field(default_factory=dict)
     ai_agents: int = 4
     prediction_horizon_minutes: int = 10
     pipeline_interval_sec: int = 30
     fallback_enabled: bool = True
     data_source: str = "simulation + firestore"
+    deployment: str = "cloud_run"
     simulation_enabled: bool = True
     websocket_enabled: bool = True
+
+
+class SystemMetricsResponse(BaseModel):
+    """Response for GET /system/metrics."""
+
+    avg_pipeline_latency_ms: int = 0
+    websocket_latency_ms: int = 0
+    firestore_writes_per_cycle: int = 0
+    pipeline_source: str = "offline"
+    websocket_connections: int = 0

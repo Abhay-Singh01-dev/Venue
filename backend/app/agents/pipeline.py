@@ -28,26 +28,46 @@ def _get_zone_states_from_firestore() -> list[dict]:
     """Reads all current zone states from Firestore sorted by occupancy."""
     if not db:
         return []
-        
-    zones_ref = db.collection("zones").stream()
-    zones = []
-    for doc in zones_ref:
-        data = doc.to_dict()
-        if data:
-            zones.append(data)
-    
-    zones.sort(key=lambda z: z.get("occupancy_pct", 0), reverse=True)
-    logger.debug({"event": "pipeline_zone_read", "component": "pipeline", "zones": len(zones)})
-    return zones
+
+    try:
+        zones_ref = db.collection("zones").stream()
+        zones = []
+        for doc in zones_ref:
+            data = doc.to_dict()
+            if data:
+                zones.append(data)
+
+        zones.sort(key=lambda z: z.get("occupancy_pct", 0), reverse=True)
+        logger.debug({"event": "pipeline_zone_read", "component": "pipeline", "zones": len(zones)})
+        return zones
+    except Exception as e:
+        logger.warning(
+            {
+                "event": "pipeline_zone_read_failed",
+                "component": "pipeline",
+                "error": str(e),
+            }
+        )
+        return []
 
 
 def _get_phase_status_from_firestore() -> dict:
     """Reads current simulation phase status from Firestore."""
     if not db:
         return {"phase": "unknown"}
-        
-    doc = db.collection("simulation").document("status").get()
-    return doc.to_dict() if doc.exists else {"phase": "unknown"}
+
+    try:
+        doc = db.collection("simulation").document("status").get()
+        return doc.to_dict() if doc.exists else {"phase": "unknown"}
+    except Exception as e:
+        logger.warning(
+            {
+                "event": "pipeline_phase_read_failed",
+                "component": "pipeline",
+                "error": str(e),
+            }
+        )
+        return {"phase": "unknown"}
 
 
 def _calculate_action_impacts(current_zones: list[dict]) -> list[dict]:
@@ -212,7 +232,12 @@ def _get_safe_empty_output(run_id: str) -> dict:
 
 
 def run_pipeline() -> dict:
-    """Executes the complete 4-agent AI pipeline."""
+    """Executes the complete 4-agent AI pipeline.
+
+    The pipeline runs Analyst -> Predictor -> Decision -> Communicator and
+    returns a structured operational intelligence payload for the dashboard,
+    Firestore persistence, and fallback-safe API responses.
+    """
     global _last_successful_output, _previous_decisions
     
     run_id = str(uuid.uuid4())

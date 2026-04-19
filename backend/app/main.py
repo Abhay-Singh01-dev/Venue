@@ -27,6 +27,20 @@ from app.simulation.simulator import VenueSimulator
 import time
 
 
+def _setup_google_cloud_logging() -> None:
+    """Configures Cloud Logging on Cloud Run when SDK is available."""
+    if not os.getenv("K_SERVICE"):
+        return
+    try:
+        import google.cloud.logging as gcp_logging
+
+        client = gcp_logging.Client()
+        client.setup_logging()
+        logging.getLogger(__name__).info("google_cloud_logging_enabled")
+    except Exception as exc:
+        logging.getLogger(__name__).warning("google_cloud_logging_unavailable: %s", exc)
+
+
 def setup_logging() -> None:
     """
     Configures structured logging to both console and rotating file.
@@ -53,6 +67,8 @@ def setup_logging() -> None:
     root_logger.setLevel(log_level)
     root_logger.addHandler(console_handler)
     root_logger.addHandler(file_handler)
+
+    _setup_google_cloud_logging()
     
     logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
 
@@ -144,12 +160,16 @@ async def lifespan(app: FastAPI):
     setup_logging()
     logger.info({"event": "app_startup", "component": "main"})
     logger.info({"event": "initial_pipeline_start", "component": "main"})
-    
-    try:
-        run_pipeline()
-        logger.info({"event": "initial_pipeline_complete", "component": "main"})
-    except Exception as e:
-        logger.error({"event": "initial_pipeline_failed", "component": "main", "error": str(e)})
+
+    async def _run_initial_pipeline_async() -> None:
+        try:
+            await asyncio.to_thread(run_pipeline)
+            logger.info({"event": "initial_pipeline_complete", "component": "main"})
+        except Exception as e:
+            logger.error({"event": "initial_pipeline_failed", "component": "main", "error": str(e)})
+
+    # Do not block app startup on external AI/database latency.
+    asyncio.create_task(_run_initial_pipeline_async())
         
     logger.info({"event": "simulator_init_start", "component": "main"})
     simulator = VenueSimulator()

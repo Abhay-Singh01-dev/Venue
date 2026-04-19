@@ -220,6 +220,13 @@ export function Header() {
           <div className="flex flex-col items-end gap-1">
             <button
               onClick={() => setScenarioMenuOpen(!scenarioMenuOpen)}
+              aria-label={
+                isSimulating
+                  ? `Scenario running, ${simulationSecondsRemaining} seconds remaining`
+                  : "Open simulation scenario menu"
+              }
+              aria-haspopup="menu"
+              aria-expanded={scenarioMenuOpen && !isSimulating}
               className={`h-10 flex items-center gap-2 px-4 rounded-full border text-sm font-medium transition-colors ${
                 isSimulating
                   ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-300"
@@ -249,11 +256,15 @@ export function Header() {
                 exit={{ opacity: 0, y: -5 }}
                 transition={{ duration: 0.15 }}
                 className="absolute top-full right-0 mt-2 w-48 bg-[#0b1221]/95 backdrop-blur-xl border border-white/[0.08] rounded-xl shadow-2xl z-50 overflow-hidden"
+                role="menu"
+                aria-label="Simulation scenarios"
               >
                 <div className="flex flex-col py-1.5">
                   {scenarios.map((scenario) => (
                     <button
                       key={scenario.value}
+                      role="menuitem"
+                      aria-label={`Run scenario: ${scenario.label}`}
                       onClick={() => {
                         startSimulation(scenario.value);
                         setScenarioMenuOpen(false);

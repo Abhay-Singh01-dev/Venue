@@ -1,30 +1,39 @@
-import os
-import sys
+"""Deterministic pipeline contract tests without external dependencies."""
 
-# Ensure backend package is in path
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+import app.agents.pipeline as pipeline
 
-from app.agents.pipeline import run_pipeline
 
-def test_pipeline_execution():
-    """
-    Test that the run_pipeline execution completes without crashing
-    and outputs the expected data structures into Firestore (if db is connected).
-    """
-    try:
-        # Running the pipeline safely
-        result = run_pipeline()
-        
-        # Verify result is a dict with standard expected payload fields
-        assert isinstance(result, dict), "Pipeline should return a structured dictionary"
-        assert "run_id" in result, "Result missing run_id"
-        assert "hotspots" in result, "Result missing hotspots"
-        assert "decisions" in result, "Result missing decisions"
-        
-        print("[PASS] Pipeline execution test successfully completed!")
-    except Exception as e:
-        print(f"[FAIL] Pipeline execution test failed: {e}")
-        raise
+def test_pipeline_returns_safe_contract_without_db(monkeypatch) -> None:
+    """Pipeline should produce a stable fallback contract when DB is unavailable."""
+    monkeypatch.setattr(pipeline, "db", None)
 
-if __name__ == "__main__":
-    test_pipeline_execution()
+    result = pipeline.run_pipeline()
+
+    assert isinstance(result, dict)
+    assert "run_id" in result
+    assert "hotspots" in result
+    assert "decisions" in result
+    assert "communication" in result
+    assert "pipeline_health" in result
+
+
+def test_safe_empty_output_contains_required_keys() -> None:
+    """Safe empty payload should remain schema-compatible for frontend consumers."""
+    payload = pipeline._get_safe_empty_output("unit-test-run")
+
+    required_keys = {
+        "run_id",
+        "run_at",
+        "source",
+        "pipeline_health",
+        "hotspots",
+        "predictions",
+        "decisions",
+        "communication",
+        "metrics",
+    }
+
+    assert required_keys.issubset(payload.keys())
+    assert payload["run_id"] == "unit-test-run"
+    assert isinstance(payload["predictions"], list)
+    assert isinstance(payload["decisions"], list)
