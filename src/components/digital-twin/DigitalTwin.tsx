@@ -13,6 +13,11 @@ import { ZoneEditPanel } from "../editor/ZoneEditPanel";
 import { ZoneInspectionPanel } from "../panels/ZoneInspectionPanel";
 import { Zone } from "../../types";
 
+/**
+ * DigitalTwin
+ *
+ * Renders the live venue canvas, selection state, and editor overlays.
+ */
 export function DigitalTwin() {
   const zones = useStore((s) => s.zones);
   const selectedZoneId = useStore((s) => s.selectedZoneId);
@@ -243,6 +248,8 @@ export function DigitalTwin() {
               viewBox="0 0 900 550"
               className="w-full h-full absolute inset-0"
               style={{ maxHeight: "500px" }}
+              aria-hidden="true"
+              focusable="false"
             >
               {/* Venue-agnostic layout */}
               <VenueRenderer

@@ -1,3 +1,11 @@
+[project]
+name = "flowstate-ai"
+version = "2.4.1"
+description = "Real-time crowd intelligence platform for venue safety operations"
+requires-python = ">=3.11"
+readme = "README.md"
+keywords = ["crowd-safety", "ai", "real-time", "gemini", "firestore"]
+
 [tool.ruff]
 line-length = 100
 target-version = "py311"
@@ -14,3 +22,8 @@ disallow_untyped_defs = false
 [tool.coverage.run]
 branch = true
 source = ["backend/app"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false
+fail_under = 55

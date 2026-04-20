@@ -128,15 +128,6 @@ export function StadiumSVG({
     return m;
   }, [zones]);
 
-  // Prediction lookup
-  const predMap = useMemo(() => {
-    const m: Record<string, number> = {};
-    predictions.forEach((p) => {
-      m[p.zoneId] = p.predictedPct;
-    });
-    return m;
-  }, [predictions]);
-
   const handleZoneKeyDown = (
     e: React.KeyboardEvent<SVGPathElement | SVGCircleElement>,
     zoneId: string,
@@ -148,7 +139,11 @@ export function StadiumSVG({
   };
 
   return (
-    <svg viewBox="0 0 900 550" className="w-full h-full">
+    <svg
+      viewBox="0 0 900 550"
+      className="w-full h-full"
+      focusable="false"
+    >
       <defs>
         {/* Soft glow filter — intensity varies by usage */}
         <filter

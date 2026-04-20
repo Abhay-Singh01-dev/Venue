@@ -14,6 +14,15 @@ class Settings(BaseSettings):
     firebase_credentials_base64: str | None = None
     firebase_project_id: str
     simulation_speed: float = 5.0
+    bq_enabled: bool = True
+    bq_dataset: str = "flowstate_ai"
+    bq_table: str = "pipeline_metrics"
+    gcs_enabled: bool = True
+    gcs_bucket: str = "flowstate-ai-evidence"
+    pubsub_enabled: bool = True
+    pubsub_topic: str = "pipeline-run-completed"
+    trigger_min_interval_seconds: int = 15
+    max_request_bytes: int = 1_000_000
     cors_origins: Any = ["http://localhost:5173"]
     log_level: str = "INFO"
     port: int = 8080

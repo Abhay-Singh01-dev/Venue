@@ -16,6 +16,9 @@ from app.agents.agent_analyst import run_analyst
 from app.agents.agent_predictor import run_predictor
 from app.agents.agent_decision import run_decision
 from app.agents.agent_communicator import run_communicator
+from app.services.bigquery_service import log_pipeline_metrics_to_bigquery
+from app.services.cloud_storage_service import write_pipeline_snapshot_to_gcs
+from app.services.pubsub_service import publish_pipeline_completed_event
 
 logger = logging.getLogger(__name__)
 _firestore_executor = ThreadPoolExecutor(max_workers=4)
@@ -174,9 +177,11 @@ def _write_pipeline_output(output: dict) -> None:
                 _active_alerts.remove(zone_id)
     
     # Commit with retry logic
+    committed = False
     for attempt in range(3):
         try:
             batch.commit()
+            committed = True
             break
         except Exception as e:
             logger.error(
@@ -191,6 +196,39 @@ def _write_pipeline_output(output: dict) -> None:
             time.sleep(1)
     else:
         logger.critical({"event": "pipeline_commit_failed", "component": "pipeline", "max_attempts": 3})
+
+    if committed:
+        bigquery_logged = log_pipeline_metrics_to_bigquery(output)
+        storage_logged = write_pipeline_snapshot_to_gcs(output)
+        downstream_pointer = None
+        if storage_logged:
+            downstream_pointer = f"gcs://pipeline_snapshots/{output.get('run_id', 'unknown')}.json"
+        pubsub_logged = publish_pipeline_completed_event(output, downstream_pointer)
+        logger.debug(
+            {
+                "event": "pipeline_bigquery_export",
+                "component": "pipeline",
+                "run_id": output.get("run_id"),
+                "success": bigquery_logged,
+            }
+        )
+        logger.debug(
+            {
+                "event": "pipeline_storage_snapshot",
+                "component": "pipeline",
+                "run_id": output.get("run_id"),
+                "success": storage_logged,
+            }
+        )
+        logger.debug(
+            {
+                "event": "pipeline_pubsub_publish",
+                "component": "pipeline",
+                "run_id": output.get("run_id"),
+                "success": pubsub_logged,
+                "downstream_evidence_pointer": downstream_pointer,
+            }
+        )
         
     logger.debug({"event": "pipeline_write_complete", "component": "pipeline", "run_id": output.get("run_id")})
     
@@ -297,8 +335,13 @@ def run_pipeline() -> dict:
                 cached["pipeline_health"] = "degraded"
                 cached["run_id"] = run_id
                 cached["fallback_reason"] = "Using last successful pipeline output"
+                log_pipeline_metrics_to_bigquery(cached)
+                write_pipeline_snapshot_to_gcs(cached)
                 return cached
-            return _get_safe_empty_output(run_id)
+            empty_output = _get_safe_empty_output(run_id)
+            log_pipeline_metrics_to_bigquery(empty_output)
+            write_pipeline_snapshot_to_gcs(empty_output)
+            return empty_output
 
         retry_delays = [0.5, 1.0]
         fallback_reason = None
@@ -420,5 +463,10 @@ def run_pipeline() -> dict:
             cached["pipeline_health"] = "degraded"
             cached["run_id"] = run_id
             cached["fallback_reason"] = "Using last successful pipeline output"
+            log_pipeline_metrics_to_bigquery(cached)
+            write_pipeline_snapshot_to_gcs(cached)
             return cached
-        return _get_safe_empty_output(run_id)
+        empty_output = _get_safe_empty_output(run_id)
+        log_pipeline_metrics_to_bigquery(empty_output)
+        write_pipeline_snapshot_to_gcs(empty_output)
+        return empty_output

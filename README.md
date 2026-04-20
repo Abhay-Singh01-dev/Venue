@@ -32,6 +32,8 @@ Try:
 - **Google Cloud Run** - Backend deployment (FastAPI + WebSocket)
 - **Firebase Firestore** - Real-time state for zones, simulation, pipeline, alerts
 - **Google Gemini** - Multi-agent AI pipeline for analysis, prediction, and decisions
+- **Google BigQuery** - Analytics export for pipeline run metrics and trend analysis
+- **Google Cloud Storage** - Pipeline snapshot evidence storage for operational forensics
 
 These services power the system end-to-end.
 
@@ -48,14 +50,17 @@ Cloud Run service:
 - region: asia-south1
 - project: promptwarsonline
 - url: https://flowstate-backend-156628510595.asia-south1.run.app
-- latest ready revision: flowstate-backend-00028-hf5
+- latest ready revision: flowstate-backend-00037-57n
 - traffic: 100% on latest revision
 
 Evaluator-friendly proof endpoints:
 
 - GET / -> confirms operational status plus ai, database, and deployment fields
 - GET /system/info -> confirms explicit google_services signals
-- GET /google-services/status -> confirms runtime Google SDK integration status
+- GET /system/impact -> confirms quantified before/after problem-statement evidence
+- GET /google-services -> confirms the consolidated Google runtime payload
+- GET /google-services/status -> confirms runtime Google SDK integration status including BigQuery and Cloud Storage
+- GET /google-services/evidence -> confirms live operation metadata (`operation_count`, `last_success_at`, `last_error`) per service
 - GET /health/ready -> confirms dependency readiness state
 - GET /pipeline/latest -> confirms predictive pipeline structure
 - GET /simulation/status -> confirms live simulation status contract
@@ -65,12 +70,13 @@ Evaluator-friendly proof endpoints:
 
 Validation completed against current workspace and Cloud Run deployment.
 
-- Backend tests: `42 passed` (`pytest` with coverage output)
-- Frontend tests: `6 passed` (`vitest`)
+- Backend tests: `50 passed` (`pytest` with coverage output)
+- Frontend tests: `7 passed` (`vitest`)
 - Frontend production build: successful (`tsc -b && vite build`)
-- Cloud Run service: `flowstate-backend-00028-hf5` serving 100% traffic
+- Cloud Run service: `flowstate-backend-00037-57n` serving 100% traffic
 - Verified live endpoints after latest deploy:
-  - `GET /google-services/status` returns Firestore, Gemini, Cloud Run, and Cloud Logging status
+  - `GET /google-services/status` returns Firestore, Gemini, Cloud Run, Cloud Logging, BigQuery, and Cloud Storage status
+  - `GET /google-services/evidence` returns per-service operation metadata and pipeline evidence
   - `GET /system/info` returns dynamic `google_services` status payload
   - `GET /health/ready` returns `status: ready` with dependency states
 
@@ -83,6 +89,8 @@ FlowState AI includes explicit Google SDK imports in backend runtime code:
 - `from google.cloud import firestore as gcp_firestore` in `backend/app/services/google_services.py`
 - `import google.generativeai as genai` in `backend/app/services/google_services.py`
 - `import google.cloud.logging as gcp_logging` in `backend/app/services/google_services.py`
+- `from google.cloud import bigquery` in `backend/app/services/bigquery_service.py`
+- `from google.cloud import storage` in `backend/app/services/cloud_storage_service.py`
 - `import google.cloud.logging as gcp_logging` in `backend/app/main.py` (Cloud Run logging setup)
 
 These imports are wired to runtime status reporting through `GET /google-services/status`.
@@ -93,6 +101,16 @@ These imports are wired to runtime status reporting through `GET /google-service
 - No credentials are committed to source control
 - Firestore is accessed only from backend server code via Admin SDK
 - Input validation is enforced on API endpoints (for example, simulation phase validation)
+- Manual pipeline trigger is rate-limited to reduce abuse risk
+- Request payload size is bounded for write endpoints to reduce resource-exhaustion attacks
+
+### Security Controls Checklist
+
+- Secret hygiene: `.env` ignored and placeholder-only examples are enforced by tests
+- Dependency risk visibility: `pip-audit` runs in CI report mode
+- Secret scanning: `gitleaks` runs in CI
+- API abuse controls: request-size guard + trigger endpoint rate limiting
+- Regression checks: security and submission-signal tests verify controls remain present
 
 ## Accessibility
 
@@ -107,8 +125,12 @@ Test coverage includes API endpoints, pipeline structure, fallback behavior, sim
 Automated validation includes:
 
 - Backend pytest suite with coverage output in CI
+- Backend contract tests for `root`, `system/info`, `google-services/status`, `google-services/evidence`, and `pipeline/latest`
+- Backend failure-mode tests for Firestore fallback, BigQuery fallback, Cloud Storage fallback, and missing-project guards
 - Frontend unit tests (Vitest + Testing Library)
+- Frontend accessibility tests for live regions and reduced-motion support
 - Production build verification in CI
+- CI quality/security reports: Ruff, mypy, pip-audit, and gitleaks
 
 ---
 
@@ -209,10 +231,26 @@ FlowState AI deeply integrates multiple Google services. These are not optional 
   - Serves the REST API and WebSocket endpoint
   - Runs stateless application logic while Firestore keeps the shared state
 
+- **Google BigQuery**
+  - Stores compact pipeline run metrics for analytics and trend reporting
+  - Receives non-blocking best-effort writes from pipeline completion and fallback paths
+  - Surfaces operation evidence in `GET /google-services/status` and `GET /google-services/evidence`
+
+- **Google Cloud Storage**
+  - Stores compact pipeline snapshots for auditability and post-incident review
+  - Receives non-blocking best-effort writes from pipeline completion and fallback paths
+  - Surfaces object path and operation evidence in `GET /google-services/status` and `GET /google-services/evidence`
+
+- **Firebase Cloud Functions**
+  - Architecture placeholder for future event-driven triggers and webhook handlers
+  - Firebase config keeps the functions source path ready for expansion
+
 ### Explicit system proof endpoints
 
 - `GET /` returns operational status plus `ai`, `database`, and `deployment` fields
 - `GET /system/info` returns `platform` and `google_services` fields with active Google service signals
+- `GET /google-services/status` returns service-level runtime, SDK import status, and operation evidence
+- `GET /google-services/evidence` returns normalized proof structure (`operation_count`, `last_success_at`, `last_error`) for evaluator clarity
 
 These services work together as the core of the product, not as optional integrations.
 
@@ -221,6 +259,14 @@ These services work together as the core of the product, not as optional integra
 ## System Architecture
 
 FlowState AI is built around a single source of truth in Firebase Firestore. The simulation engine generates venue state, the FastAPI backend orchestrates the API and AI pipeline, and the frontend dashboard consumes the latest state through REST and WebSocket connections.
+
+### Backend Module Responsibilities
+
+- `app/api/*`: request/response contracts, endpoint guards, and fallback-safe HTTP behavior
+- `app/services/*`: external SDK adapters (BigQuery, Cloud Storage, Google service status aggregation)
+- `app/agents/*`: AI pipeline orchestration and output assembly
+- `app/models/*`: typed schemas and response contracts
+- `app/main.py`: app composition, middleware, error mapping, and background scheduler lifecycle
 
 ### Architecture Diagram
 

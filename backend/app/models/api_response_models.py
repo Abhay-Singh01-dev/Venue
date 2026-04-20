@@ -260,6 +260,33 @@ class HealthServicesResponse(BaseModel):
     gemini: str
 
 
+class SystemImpactResponse(BaseModel):
+    """Quantified system impact proof payload for the root and impact endpoints."""
+
+    problem: str = ""
+    solution: str = ""
+    problem_solved: str = ""
+    prediction_horizon_minutes: int = 0
+    measurable_outcomes: dict[str, Any] = Field(default_factory=dict)
+    rolling_metrics: dict[str, Any] = Field(default_factory=dict)
+    without_ai: str = ""
+    with_ai: str = ""
+    impact: str = ""
+
+
+class WorkflowProofResponse(BaseModel):
+    """Workflow proof payload for multi-service pipeline execution evidence."""
+
+    checked_at: str = ""
+    run_id: str = "unknown"
+    pipeline_health: str = "unknown"
+    latest_published_event_id: str | None = None
+    latest_published_at: str | None = None
+    downstream_evidence_pointer: str | None = None
+    service_operations: dict[str, Any] = Field(default_factory=dict)
+    google_services: dict[str, Any] = Field(default_factory=dict)
+
+
 class HealthResponse(BaseModel):
     """Response model for root, liveness, and readiness endpoints."""
 
@@ -281,6 +308,12 @@ class HealthResponse(BaseModel):
     zones_active: int | None = None
     endpoints: list[str] | None = None
     services: HealthServicesResponse | None = None
+    problem_solved: str | None = None
+    prediction_horizon_minutes: int | None = None
+    measurable_outcomes: dict[str, Any] | None = None
+    without_ai: str | None = None
+    with_ai: str | None = None
+    impact: str | None = None
     error: str | None = None
 
 
@@ -335,6 +368,15 @@ class SystemInfoResponse(BaseModel):
     websocket_enabled: bool = True
 
 
+class GoogleServicesEvidenceResponse(BaseModel):
+    """Response for GET /google-services/evidence."""
+
+    checked_at: str = ""
+    google_services: dict[str, Any] = Field(default_factory=dict)
+    evidence: dict[str, Any] = Field(default_factory=dict)
+    service_operations: dict[str, Any] = Field(default_factory=dict)
+
+
 class SystemMetricsResponse(BaseModel):
     """Response for GET /system/metrics."""
 
@@ -343,3 +385,17 @@ class SystemMetricsResponse(BaseModel):
     firestore_writes_per_cycle: int = 0
     pipeline_source: str = "offline"
     websocket_connections: int = 0
+
+
+class ErrorDetailResponse(BaseModel):
+    """Structured API error details for consistent error contracts."""
+
+    code: str
+    message: str
+    timestamp: str
+
+
+class ErrorResponse(BaseModel):
+    """Top-level API error wrapper used by global exception handlers."""
+
+    error: ErrorDetailResponse

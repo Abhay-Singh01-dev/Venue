@@ -8,6 +8,9 @@ from typing import Any
 
 from app.core.settings import settings
 from app.firebase_client import db
+from app.services.bigquery_service import get_bigquery_status
+from app.services.cloud_storage_service import get_cloud_storage_status
+from app.services.pubsub_service import get_pubsub_status
 
 try:
     import google.generativeai as genai  # noqa: F401
@@ -66,4 +69,7 @@ def get_google_services_status() -> dict[str, Any]:
             "sdk": "google-cloud-logging",
             "sdk_import": _sdk_status(gcp_logging),
         },
+        "bigquery": get_bigquery_status(),
+        "cloud_storage": get_cloud_storage_status(),
+        "pubsub": get_pubsub_status(),
     }

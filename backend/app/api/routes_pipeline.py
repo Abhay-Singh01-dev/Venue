@@ -1,6 +1,7 @@
 """AI pipeline output endpoints."""
 
 import asyncio
+import time
 from fastapi import APIRouter, HTTPException, BackgroundTasks
 from app.firebase_client import db
 from app.agents.pipeline import run_pipeline, _get_safe_empty_output
@@ -11,11 +12,13 @@ from app.models.api_response_models import (
 )
 from datetime import datetime, timezone
 import logging
+from app.core.settings import settings
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/pipeline", tags=["pipeline"])
 
 FIRESTORE_READ_TIMEOUT_SEC = 1.5
+_last_manual_trigger_ts = 0.0
 
 
 def _enrich_pipeline_payload(payload: dict) -> dict:
@@ -142,5 +145,17 @@ async def trigger_pipeline(background_tasks: BackgroundTasks) -> dict:
     Manually triggers one pipeline cycle as a background task.
     Returns immediately — result available via GET /pipeline/latest.
     """
+    global _last_manual_trigger_ts
+
+    now = time.monotonic()
+    min_interval = max(1, settings.trigger_min_interval_seconds)
+    if now - _last_manual_trigger_ts < min_interval:
+        retry_after = int(min_interval - (now - _last_manual_trigger_ts))
+        raise HTTPException(
+            status_code=429,
+            detail=f"Trigger rate limit exceeded. Retry in {retry_after}s.",
+        )
+
+    _last_manual_trigger_ts = now
     background_tasks.add_task(run_pipeline)
     return {"message": "Pipeline cycle triggered", "check": "/pipeline/latest"}

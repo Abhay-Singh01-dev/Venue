@@ -11,6 +11,8 @@ from app.api.routes_zones import router as zones_router
 import app.api.routes_simulation as routes_simulation
 import app.api.routes_system as routes_system
 import app.api.routes_zones as routes_zones
+import app.main as app_main
+from app.main import SecurityHeadersMiddleware
 from app.core.settings import settings
 
 
@@ -28,6 +30,7 @@ def _test_client_with_cors(monkeypatch: pytest.MonkeyPatch) -> TestClient:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+    app.add_middleware(SecurityHeadersMiddleware)
     app.include_router(system_router)
     app.include_router(simulation_router)
     app.include_router(zones_router)
@@ -47,6 +50,21 @@ def test_cors_preflight_headers_present(monkeypatch: pytest.MonkeyPatch) -> None
 
     assert response.status_code in [200, 204]
     assert "access-control-allow-origin" in response.headers
+
+
+def test_security_headers_present(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(app_main, "db", None)
+    monkeypatch.setattr(routes_system, "db", None)
+    monkeypatch.setattr(routes_simulation, "db", None)
+    monkeypatch.setattr(routes_zones, "db", None)
+
+    client = TestClient(app_main.app)
+
+    response = client.get("/")
+
+    assert response.headers["x-content-type-options"] == "nosniff"
+    assert response.headers["x-frame-options"] == "DENY"
+    assert response.headers["referrer-policy"] == "strict-origin-when-cross-origin"
 
 
 def test_invalid_simulation_phase_rejected(monkeypatch: pytest.MonkeyPatch) -> None:

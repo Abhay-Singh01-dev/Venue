@@ -2,6 +2,11 @@
 
 import { useStore } from "../../store/useStore";
 
+/**
+ * Sidebar
+ *
+ * Provides persistent navigation and system status for desktop layouts.
+ */
 export function Sidebar() {
   const systemHealth = useStore((s) => s.systemHealth);
   const healthDotClass =
@@ -31,6 +36,8 @@ export function Sidebar() {
               strokeWidth="2"
               strokeLinecap="round"
               strokeLinejoin="round"
+              aria-hidden="true"
+              focusable="false"
             >
               <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
             </svg>
@@ -57,7 +64,7 @@ export function Sidebar() {
       </div>
 
       {/* Navigation */}
-      <nav className="flex-1 px-3">
+      <nav className="flex-1 px-3" aria-label="Primary navigation">
         <button className="w-full h-11 flex items-center gap-3 px-4 rounded-xl text-sm font-medium bg-cyan-500/10 text-cyan-300 border border-cyan-500/20 transition-all duration-200">
           <svg
             className="w-[18px] h-[18px]"
@@ -67,6 +74,8 @@ export function Sidebar() {
             strokeWidth="1.8"
             strokeLinecap="round"
             strokeLinejoin="round"
+            aria-hidden="true"
+            focusable="false"
           >
             <path d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-4 0h4" />
           </svg>

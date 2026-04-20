@@ -25,6 +25,11 @@ interface VenueRendererProps {
   onPathDelete?: (pathId: string) => void;
 }
 
+/**
+ * VenueRenderer
+ *
+ * Routes the active venue to the correct SVG renderer for the current layout.
+ */
 export function VenueRenderer({
   venue,
   zones,

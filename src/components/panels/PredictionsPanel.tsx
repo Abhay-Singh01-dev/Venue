@@ -4,6 +4,11 @@ import { motion } from "framer-motion";
 import { useStore } from "../../store/useStore";
 import { GlowCard } from "../ui/GlowCard";
 
+/**
+ * PredictionsPanel
+ *
+ * Presents the top predicted congestion hotspots over the next ten minutes.
+ */
 export function PredictionsPanel() {
   const predictions = useStore((s) => s.predictions);
 
@@ -33,10 +38,12 @@ export function PredictionsPanel() {
       </div>
 
       {/* Prediction Items */}
-      <div className="space-y-4">
+      <div className="space-y-4" role="list" aria-label="Zone predictions">
         {predictions.map((pred, i) => (
           <motion.div
             key={pred.zoneId}
+            role="listitem"
+            aria-label={`${pred.zoneName}: ${pred.predictedPct}% predicted`}
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: i * 0.05, duration: 0.3 }}
@@ -115,6 +122,11 @@ export function PredictionsPanel() {
               <div className="flex-1 h-1 bg-white/[0.04] rounded-full overflow-hidden">
                 <motion.div
                   className="h-full rounded-full bg-gradient-to-r from-cyan-500 to-cyan-400"
+                  role="progressbar"
+                  aria-label={`${pred.zoneName} confidence: ${pred.confidence}%`}
+                  aria-valuenow={pred.confidence}
+                  aria-valuemin={0}
+                  aria-valuemax={100}
                   initial={{ width: 0 }}
                   animate={{ width: `${pred.confidence}%` }}
                   transition={{ duration: 0.8, delay: 0.2, ease: "easeOut" }}

@@ -1,5 +1,7 @@
 """Zone data endpoints — current states and zone history."""
 
+import re
+
 from fastapi import APIRouter, HTTPException
 from app.firebase_client import db
 from app.models.api_response_models import ZonesResponse, ZoneSummaryResponse, ZoneResponse
@@ -8,6 +10,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/zones", tags=["zones"])
+VALID_ZONE_ID = re.compile(r"^[a-z0-9\-_]{1,50}$")
 
 
 def _risk_from_occupancy(occupancy_pct: float) -> str:
@@ -118,6 +121,9 @@ async def get_zones_summary() -> dict:
 async def get_zone(zone_id: str) -> dict:
     """Returns single zone state by ID."""
     try:
+        if not VALID_ZONE_ID.match(zone_id):
+            raise HTTPException(status_code=400, detail="Invalid zone_id format")
+
         if not db:
             raise HTTPException(status_code=503, detail="Database unavailable")
             

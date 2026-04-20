@@ -22,6 +22,11 @@ function formatTime(date: Date): string {
   });
 }
 
+/**
+ * ActivityFeed
+ *
+ * Announces live system events through an ARIA log region for assistive tech.
+ */
 export function ActivityFeed() {
   const feed = useStore((s) => s.activityFeed);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -55,6 +60,8 @@ export function ActivityFeed() {
               strokeWidth="1.5"
               strokeLinecap="round"
               strokeLinejoin="round"
+              aria-hidden="true"
+              focusable="false"
             >
               <path d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
@@ -74,6 +81,10 @@ export function ActivityFeed() {
       {/* Event List */}
       <div
         ref={scrollContainerRef}
+        role="log"
+        aria-live="polite"
+        aria-relevant="additions text"
+        aria-label="Live activity events"
         className="flex-1 overflow-y-auto space-y-1 pr-1 min-h-0"
         style={{ maxHeight: "240px" }}
       >

@@ -70,6 +70,12 @@ function highlightText(text: string): React.ReactNode[] {
   });
 }
 
+/**
+ * AIReasoningPanel
+ *
+ * Displays the structured AI reasoning chain, confidence signal, and the
+ * evaluator-facing before/after impact summary produced by the pipeline.
+ */
 export function AIReasoningPanel() {
   const reasoning = useStore((s) => s.reasoning);
   const pipelineSource = useStore((s) => s.pipelineSource);
@@ -115,6 +121,11 @@ export function AIReasoningPanel() {
             <div className="w-16 h-1.5 bg-white/[0.06] rounded-full overflow-hidden">
               <motion.div
                 className="h-full rounded-full bg-gradient-to-r from-cyan-500 to-cyan-400"
+                role="progressbar"
+                aria-label={`AI pipeline confidence: ${reasoning.confidence}%`}
+                aria-valuenow={reasoning.confidence}
+                aria-valuemin={0}
+                aria-valuemax={100}
                 initial={{ width: 0 }}
                 animate={{ width: `${reasoning.confidence}%` }}
                 transition={{ duration: 0.6, ease: "easeOut" }}

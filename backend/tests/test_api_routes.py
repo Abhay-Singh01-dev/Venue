@@ -40,6 +40,11 @@ def test_root_exposes_service_and_endpoints() -> None:
     assert payload["status"] == "operational"
     assert "/system/info" in payload["endpoints"]
     assert "/system/metrics" in payload["endpoints"]
+    assert "/system/impact" in payload["endpoints"]
+    assert "/system/workflow" in payload["endpoints"]
+    assert "/google-services" in payload["endpoints"]
+    assert payload["problem_solved"] == "crowd congestion prediction and prevention"
+    assert payload["prediction_horizon_minutes"] == 10
 
 
 def test_health_ready_contains_dependency_states() -> None:
@@ -70,6 +75,23 @@ def test_system_info_and_metrics_contracts() -> None:
     assert "firestore" in info_payload["google_services"]
     assert "gemini" in info_payload["google_services"]
     assert "cloud_run" in info_payload["google_services"]
+    assert "cloud_logging" in info_payload["google_services"]
+    assert "bigquery" in info_payload["google_services"]
+    assert "cloud_storage" in info_payload["google_services"]
+
+    impact_response = client.get("/system/impact")
+    assert impact_response.status_code == 200
+    impact_payload = impact_response.json()
+    assert impact_payload["measurable_outcomes"]["fallback_coverage_pct"] == 100
+    assert "rolling_metrics" in impact_payload
+    assert "sample_window" in impact_payload["rolling_metrics"]
+
+    workflow_response = client.get("/system/workflow")
+    assert workflow_response.status_code == 200
+    workflow_payload = workflow_response.json()
+    assert "latest_published_event_id" in workflow_payload
+    assert "downstream_evidence_pointer" in workflow_payload
+    assert "pubsub" in workflow_payload["service_operations"]
 
     metrics_response = client.get("/system/metrics")
     assert metrics_response.status_code == 200
@@ -78,3 +100,20 @@ def test_system_info_and_metrics_contracts() -> None:
     assert isinstance(metrics_payload["websocket_latency_ms"], int)
     assert isinstance(metrics_payload["firestore_writes_per_cycle"], int)
     assert isinstance(metrics_payload["websocket_connections"], int)
+
+
+def test_pipeline_trigger_rate_limit(monkeypatch) -> None:
+    routes_system.db = None
+    routes_pipeline._last_manual_trigger_ts = 0.0
+    monkeypatch.setattr(routes_pipeline, "run_pipeline", lambda: None)
+
+    app = FastAPI()
+    app.include_router(system_router)
+    app.include_router(pipeline_router)
+    client = TestClient(app)
+
+    first = client.post("/pipeline/trigger")
+    second = client.post("/pipeline/trigger")
+
+    assert first.status_code == 200
+    assert second.status_code == 429

@@ -43,7 +43,7 @@ interface ResizeState {
   h: number;
 }
 
-function getBounds(editMode: boolean) {
+function getBounds() {
   return {
     minX: SAFE_PAD_X,
     maxX: CANVAS_W - SAFE_PAD_X,
@@ -115,7 +115,7 @@ export function CustomEditorSVG({
 }: CustomEditorSVGProps) {
   const [dragState, setDragState] = useState<DragState | null>(null);
   const [resizeState, setResizeState] = useState<ResizeState | null>(null);
-  const bounds = getBounds(editMode);
+  const bounds = getBounds();
 
   const zoneMap = useMemo(() => {
     const m: Record<string, Zone> = {};
@@ -235,6 +235,8 @@ export function CustomEditorSVG({
     <svg
       viewBox={`0 0 ${CANVAS_W} ${CANVAS_H}`}
       className="w-full h-full"
+      aria-hidden="true"
+      focusable="false"
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
       onPointerLeave={handlePointerUp}

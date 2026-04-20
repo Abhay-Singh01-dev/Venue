@@ -99,6 +99,10 @@ export interface TelemetryData {
 
 // ── Color & Style Utilities ───────────────────────────────────────────
 
+/**
+ * Returns the CSS hex color for a given risk level.
+ * Used by zone visualizations to keep risk semantics consistent.
+ */
 export function getRiskColor(level: RiskLevel): string {
   switch (level) {
     case "low":
@@ -112,6 +116,10 @@ export function getRiskColor(level: RiskLevel): string {
   }
 }
 
+/**
+ * Returns a dimmed rgba color for a given risk level.
+ * Used by fill gradients and subtle overlays.
+ */
 export function getRiskColorDimmed(level: RiskLevel): string {
   switch (level) {
     case "low":
@@ -125,6 +133,9 @@ export function getRiskColorDimmed(level: RiskLevel): string {
   }
 }
 
+/**
+ * Returns the Tailwind background utility used for a risk level badge.
+ */
 export function getRiskBgClass(level: RiskLevel): string {
   switch (level) {
     case "low":
@@ -138,6 +149,9 @@ export function getRiskBgClass(level: RiskLevel): string {
   }
 }
 
+/**
+ * Returns the Tailwind text utility used for risk labels.
+ */
 export function getRiskTextClass(level: RiskLevel): string {
   switch (level) {
     case "low":

@@ -25,11 +25,16 @@ export default function App() {
 
   return (
     <div className="flex min-h-screen bg-[#020617]">
+      <a href="#main-content" className="skip-nav">
+        Skip to main content
+      </a>
       {/* Fixed Sidebar */}
       <Sidebar />
 
       {/* Main Content */}
       <main
+        id="main-content"
+        tabIndex={-1}
         className="flex-1 ml-0 lg:ml-60 p-4 lg:p-6 overflow-y-auto"
         style={{ maxHeight: "100vh" }}
       >

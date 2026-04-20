@@ -38,6 +38,11 @@ const DEFAULT_BADGE = {
   classes: "bg-slate-500/15 text-slate-300 border-slate-500/20",
 };
 
+/**
+ * ActionsPanel
+ *
+ * Shows the AI-dispatched operational actions and explains their expected impact.
+ */
 export function ActionsPanel() {
   const actions = useStore((s) => s.actions);
   const zones = useStore((s) => s.zones);

@@ -11,7 +11,10 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from starlette.middleware.base import BaseHTTPMiddleware
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from starlette.websockets import WebSocketState
 
@@ -23,8 +26,45 @@ from app.api.routes_zones import router as zones_router
 from app.api.routes_pipeline import router as pipeline_router
 from app.api.routes_simulation import router as simulation_router
 from app.api.routes_system import router as system_router
+from app.models.api_response_models import ErrorResponse
 from app.simulation.simulator import VenueSimulator
 import time
+
+
+class RequestSizeLimitMiddleware(BaseHTTPMiddleware):
+    """Rejects oversized request bodies using Content-Length guard."""
+
+    async def dispatch(self, request: Request, call_next):
+        if request.method in {"POST", "PUT", "PATCH"}:
+            content_length = request.headers.get("content-length")
+            if content_length:
+                try:
+                    if int(content_length) > settings.max_request_bytes:
+                        return JSONResponse(
+                            status_code=413,
+                            content={
+                                "error": {
+                                    "code": "payload_too_large",
+                                    "message": f"Request exceeds {settings.max_request_bytes} bytes.",
+                                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                                }
+                            },
+                        )
+                except ValueError:
+                    pass
+        return await call_next(request)
+
+
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    """Applies a small set of defensive HTTP headers to API responses."""
+
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        response.headers["X-XSS-Protection"] = "1; mode=block"
+        return response
 
 
 def _setup_google_cloud_logging() -> None:
@@ -204,6 +244,9 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+app.add_middleware(RequestSizeLimitMiddleware)
+app.add_middleware(SecurityHeadersMiddleware)
+
 cors_origins = settings.cors_origins or ["http://localhost:5173"]
 allow_credentials = "*" not in cors_origins
 
@@ -219,6 +262,31 @@ app.include_router(system_router)
 app.include_router(zones_router)
 app.include_router(pipeline_router)
 app.include_router(simulation_router)
+
+
+@app.exception_handler(HTTPException)
+async def http_exception_handler(_: Request, exc: HTTPException) -> JSONResponse:
+    payload = ErrorResponse(
+        error={
+            "code": f"http_{exc.status_code}",
+            "message": str(exc.detail),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+    )
+    return JSONResponse(status_code=exc.status_code, content=payload.model_dump())
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(_: Request, exc: Exception) -> JSONResponse:
+    logger.error({"event": "unhandled_exception", "component": "main", "error": str(exc)}, exc_info=True)
+    payload = ErrorResponse(
+        error={
+            "code": "internal_server_error",
+            "message": "Unexpected server error",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+    )
+    return JSONResponse(status_code=500, content=payload.model_dump())
 
 
 @app.websocket("/ws")

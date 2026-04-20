@@ -21,6 +21,8 @@ def test_root_exposes_explicit_google_signals() -> None:
     assert payload["ai"] == "gemini-powered"
     assert payload["database"] == "firestore"
     assert payload["deployment"] == "cloud_run"
+    assert payload["problem_solved"] == "crowd congestion prediction and prevention"
+    assert payload["prediction_horizon_minutes"] == 10
 
 
 def test_system_info_exposes_google_services() -> None:
@@ -37,6 +39,8 @@ def test_system_info_exposes_google_services() -> None:
     assert payload["google_services"]["firestore"] in ["connected", "not_configured"]
     assert payload["google_services"]["gemini"] in ["active", "missing_key"]
     assert payload["google_services"]["cloud_run"] in ["deployed", "local"]
+    assert payload["google_services"]["cloud_storage"] in ["active", "inactive", "sdk_unavailable", "disabled"]
+    assert payload["google_services"]["cloud_logging"] in ["active", "inactive"]
 
 
 def test_system_metrics_contract() -> None:

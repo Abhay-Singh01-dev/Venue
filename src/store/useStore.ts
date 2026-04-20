@@ -172,8 +172,16 @@ let backendBridgeStopping = false;
 let simulationAutoPauseHandle: ReturnType<typeof setTimeout> | null = null;
 let simulationCountdownHandle: ReturnType<typeof setInterval> | null = null;
 let simulationUiLocked = false;
-let storeSet: any = null;
-let storeGet: any = null;
+type StoreSet = (
+  partial:
+    | Partial<FlowStateStore>
+    | ((state: FlowStateStore) => Partial<FlowStateStore>),
+  replace?: boolean,
+) => void;
+type StoreGet = () => FlowStateStore;
+
+let storeSet: StoreSet | null = null;
+let storeGet: StoreGet | null = null;
 const EDIT_CANVAS_SHIFT_X = 150;
 const EDIT_CANVAS_SHIFT_Y = 35;
 const STADIUM_ZONE_ID_MAP: Record<string, string> = {
@@ -434,7 +442,7 @@ async function refreshBackendSnapshot(): Promise<void> {
           : null,
       activity: activityPayload?.events,
     });
-  } catch (error) {
+  } catch {
     if (storeSet) {
       storeSet({ backendSyncStatus: "error", systemHealth: "offline" });
     }

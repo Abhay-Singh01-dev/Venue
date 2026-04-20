@@ -3,6 +3,11 @@ import { GlowCard } from "../ui/GlowCard";
 import { AnimatedNumber } from "../ui/AnimatedNumber";
 import { motion } from "framer-motion";
 
+/**
+ * MetricsBar
+ *
+ * Summarizes the four top-level operational counters for the dashboard.
+ */
 export function MetricsBar() {
   const zones = useStore((s) => s.zones);
 

@@ -5,6 +5,11 @@ import { AIStatusRotator } from "../ai/AIStatusRotator";
 import { PipelineTicker } from "../ai/PipelineTicker";
 import { NotificationCenter } from "./NotificationCenter";
 
+/**
+ * Header
+ *
+ * Shows system health, simulation controls, notifications, and venue switching.
+ */
 export function Header() {
   const aiCycleCountdown = useStore((s) => s.aiCycleCountdown);
   const currentVenueId = useStore((s) => s.currentVenueId);
@@ -142,12 +147,27 @@ export function Header() {
           </span>
         </div>
 
+        <div className={`${chipClass} text-slate-400`}>
+          Local time{" "}
+          <span className="text-cyan-400 font-semibold tabular-nums">
+            {time.toLocaleTimeString("en-US", {
+              hour12: false,
+              hour: "2-digit",
+              minute: "2-digit",
+              second: "2-digit",
+            })}
+          </span>
+        </div>
+
         <NotificationCenter />
 
         {/* ── Venue Mode Switcher ─────────── */}
         <div className="relative" ref={dropdownRef}>
           <button
             onClick={() => setDropdownOpen(!dropdownOpen)}
+            aria-label={`Venue selector, current venue ${currentVenue?.name ?? "unknown"}`}
+            aria-haspopup="menu"
+            aria-expanded={dropdownOpen}
             className="h-10 flex items-center gap-2 px-4 rounded-full bg-white/[0.03] border border-white/[0.08] hover:bg-white/[0.06] transition-colors"
           >
             <span className="text-[9px] text-slate-500 font-semibold tracking-widest uppercase select-none">

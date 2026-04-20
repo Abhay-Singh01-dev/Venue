@@ -3,6 +3,11 @@
 import { motion } from "framer-motion";
 import { useEffect, useState } from "react";
 
+/**
+ * BootOverlay
+ *
+ * Briefly shows system initialization steps during the first render cycle.
+ */
 export function BootOverlay() {
   const [isVisible, setIsVisible] = useState(true);
   const [step, setStep] = useState(0);
