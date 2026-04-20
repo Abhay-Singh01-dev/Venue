@@ -1,8 +1,15 @@
 """Shared test fixtures for FlowState AI backend tests."""
 
+import sys
+from pathlib import Path
+
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 import pytest
+
+BACKEND_ROOT = Path(__file__).resolve().parents[1]
+if str(BACKEND_ROOT) not in sys.path:
+    sys.path.insert(0, str(BACKEND_ROOT))
 
 from app.api.routes_pipeline import router as pipeline_router
 from app.api.routes_simulation import router as simulation_router
