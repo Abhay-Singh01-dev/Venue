@@ -1,7 +1,12 @@
 """Shared test fixtures for FlowState AI backend tests."""
 
+import os
 import sys
 from pathlib import Path
+
+os.environ.setdefault("GEMINI_API_KEY", "ci-test-gemini-key")
+os.environ.setdefault("FIREBASE_PROJECT_ID", "ci-test-flowstate-project")
+os.environ.setdefault("GOOGLE_CLOUD_PROJECT", "ci-test-flowstate-project")
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient

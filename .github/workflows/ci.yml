@@ -11,6 +11,10 @@ jobs:
     defaults:
       run:
         working-directory: backend
+    env:
+      GEMINI_API_KEY: ci-test-gemini-key
+      FIREBASE_PROJECT_ID: ci-test-flowstate-project
+      GOOGLE_CLOUD_PROJECT: ci-test-flowstate-project
     steps:
       - name: Checkout
         uses: actions/checkout@v4

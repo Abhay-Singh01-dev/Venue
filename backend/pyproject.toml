@@ -4,10 +4,6 @@ version = "2.4.1"
 description = "FastAPI backend for FlowState AI crowd intelligence system"
 requires-python = ">=3.11"
 
-[tool.pytest.ini_options]
-testpaths = ["tests"]
-addopts = "-v --tb=short"
-
 [tool.ruff]
 line-length = 100
 target-version = "py311"
