@@ -75,6 +75,21 @@ def test_invalid_simulation_phase_rejected(monkeypatch: pytest.MonkeyPatch) -> N
     assert response.status_code == 400
 
 
+def test_simulation_mutations_require_token_when_configured(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(routes_simulation.settings, "simulation_control_token", "secret-token")
+    client = _test_client_with_cors(monkeypatch)
+
+    rejected = client.post("/simulation/phase", json={"phase": "pre_match"})
+    allowed = client.post(
+        "/simulation/phase",
+        json={"phase": "pre_match"},
+        headers={"X-FlowState-Control-Token": "secret-token"},
+    )
+
+    assert rejected.status_code == 403
+    assert allowed.status_code == 200
+
+
 def test_zone_lookup_with_missing_id_returns_non_500(monkeypatch: pytest.MonkeyPatch) -> None:
     client = _test_client_with_cors(monkeypatch)
 

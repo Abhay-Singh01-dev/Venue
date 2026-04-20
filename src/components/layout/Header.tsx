@@ -1,5 +1,5 @@
 import { useStore } from "../../store/useStore";
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, type KeyboardEvent } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { AIStatusRotator } from "../ai/AIStatusRotator";
 import { PipelineTicker } from "../ai/PipelineTicker";
@@ -87,8 +87,22 @@ export function Header() {
   const chipClass =
     "h-10 px-4 rounded-full bg-white/[0.03] border border-white/[0.08] text-xs inline-flex items-center gap-2 whitespace-nowrap";
 
+  const closeMenus = () => {
+    setDropdownOpen(false);
+    setScenarioMenuOpen(false);
+  };
+
+  const handleHeaderKeyDown = (event: KeyboardEvent<HTMLElement>) => {
+    if (event.key === "Escape") {
+      closeMenus();
+    }
+  };
+
   return (
-    <header className="flex items-start justify-between mb-6 gap-6">
+    <header
+      className="flex items-start justify-between mb-6 gap-6"
+      onKeyDown={handleHeaderKeyDown}
+    >
       <div className="min-w-0">
         <h1 className="text-4xl font-semibold text-white tracking-tight leading-tight">
           Operations Dashboard
@@ -165,6 +179,12 @@ export function Header() {
         <div className="relative" ref={dropdownRef}>
           <button
             onClick={() => setDropdownOpen(!dropdownOpen)}
+            onKeyDown={(event) => {
+              if (event.key === "ArrowDown") {
+                event.preventDefault();
+                setDropdownOpen(true);
+              }
+            }}
             aria-label={`Venue selector, current venue ${currentVenue?.name ?? "unknown"}`}
             aria-haspopup="menu"
             aria-expanded={dropdownOpen}
@@ -240,6 +260,12 @@ export function Header() {
           <div className="flex flex-col items-end gap-1">
             <button
               onClick={() => setScenarioMenuOpen(!scenarioMenuOpen)}
+              onKeyDown={(event) => {
+                if (event.key === "ArrowDown" && !isSimulating) {
+                  event.preventDefault();
+                  setScenarioMenuOpen(true);
+                }
+              }}
               aria-label={
                 isSimulating
                   ? `Scenario running, ${simulationSecondsRemaining} seconds remaining`

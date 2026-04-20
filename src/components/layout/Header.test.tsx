@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 const mockStoreState = {
@@ -53,5 +53,19 @@ describe("Header accessibility", () => {
 
     expect(screen.getByText(/system: healthy/i)).toBeInTheDocument();
     expect(screen.getByText(/ai loop/i)).toBeInTheDocument();
+  });
+
+  it("opens the scenario menu with ArrowDown", () => {
+    render(<Header />);
+
+    const scenarioButton = screen.getByRole("button", {
+      name: /open simulation scenario menu/i,
+    });
+
+    fireEvent.keyDown(scenarioButton, { key: "ArrowDown" });
+
+    expect(
+      screen.getByRole("menu", { name: /simulation scenarios/i }),
+    ).toBeInTheDocument();
   });
 });

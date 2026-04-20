@@ -58,6 +58,39 @@ async def _safe_firestore_get(collection: str, document: str) -> tuple[dict, boo
         return {}, False
 
 
+async def _safe_pipeline_history_get(limit: int = 20) -> list[dict]:
+    """Reads recent pipeline history with a strict timeout and fallback."""
+    if not db:
+        return []
+
+    capped_limit = min(max(1, limit), 50)
+
+    def _read_history() -> list[dict]:
+        runs_ref = (
+            db.collection("pipeline")
+            .document("history")
+            .collection("runs")
+            .order_by("run_at", direction="DESCENDING")
+            .limit(capped_limit)
+        )
+
+        history: list[dict] = []
+        for doc in runs_ref.stream():
+            data = doc.to_dict()
+            if data:
+                history.append(data)
+        return history
+
+    try:
+        return await asyncio.wait_for(
+            asyncio.to_thread(_read_history),
+            timeout=FIRESTORE_READ_TIMEOUT_SEC,
+        )
+    except Exception as exc:
+        logger.warning("Pipeline history read fallback: %s", exc)
+        return []
+
+
 def _synthetic_zones_for_stats() -> list[dict]:
     zones: list[dict] = []
     for zone_id, config in ZONE_CONFIG.items():
@@ -98,7 +131,27 @@ def _system_impact_payload() -> dict:
     }
 
 
-def _rolling_impact_metrics() -> dict:
+async def _historical_impact_metrics() -> dict:
+    """Summarizes recent pipeline history into machine-readable evaluator evidence."""
+    history = await _safe_pipeline_history_get(limit=20)
+    latencies = [int(item.get("pipeline_duration_ms", 0) or 0) for item in history]
+    confidences = [float(item.get("confidence_overall", 0.0) or 0.0) for item in history]
+    fallback_count = sum(
+        1
+        for item in history
+        if item.get("fallback_used") or item.get("source") == "cached" or item.get("pipeline_health") == "degraded"
+    )
+
+    return {
+        "sample_window": f"last_{len(history)}_runs" if history else "empty",
+        "history_runs": len(history),
+        "historical_avg_pipeline_latency_ms": round(sum(latencies) / len(latencies), 1) if latencies else 0,
+        "historical_avg_confidence_overall": round(sum(confidences) / len(confidences), 2) if confidences else 0.0,
+        "historical_fallback_rate_pct": round((fallback_count / max(1, len(history))) * 100.0, 1),
+    }
+
+
+async def _rolling_impact_metrics() -> dict:
     """Builds machine-readable impact metrics from the latest available live state."""
     if not db:
         return {
@@ -108,6 +161,13 @@ def _rolling_impact_metrics() -> dict:
             "queue_delay_reduction_pct": 0.0,
             "critical_risk_minutes_avoided": 0,
             "zones_in_window": 0,
+            "historical": {
+                "sample_window": "offline-baseline",
+                "history_runs": 0,
+                "historical_avg_pipeline_latency_ms": 0,
+                "historical_avg_confidence_overall": 0.0,
+                "historical_fallback_rate_pct": 0.0,
+            },
         }
 
     zones: list[dict] = []
@@ -131,6 +191,7 @@ def _rolling_impact_metrics() -> dict:
         "queue_delay_reduction_pct": round(min(35.0, avg_queue * 1.5), 1),
         "critical_risk_minutes_avoided": critical_zones * 10,
         "zones_in_window": len(zones),
+        "historical": await _historical_impact_metrics(),
     }
 
 @router.get("/", response_model=HealthResponse)
@@ -237,6 +298,7 @@ async def get_system_info() -> dict:
             "cloud_logging": str(google_status["cloud_logging"]["status"]),
             "bigquery": str(google_status["bigquery"]["status"]),
             "cloud_storage": str(google_status["cloud_storage"]["status"]),
+            "pubsub": str(google_status["pubsub"]["status"]),
         },
         "ai_agents": 4,
         "prediction_horizon_minutes": 10,
@@ -253,7 +315,7 @@ async def get_system_info() -> dict:
 async def get_system_impact() -> dict:
     """Returns quantified before/after evidence for the core product problem statement."""
     payload = _system_impact_payload()
-    payload["rolling_metrics"] = _rolling_impact_metrics()
+    payload["rolling_metrics"] = await _rolling_impact_metrics()
     return payload
 
 

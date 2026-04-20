@@ -23,13 +23,20 @@ def test_env_files_are_ignored_and_examples_use_placeholders() -> None:
 def test_header_has_accessibility_signals() -> None:
     """Ensure scenario controls keep explicit accessibility attributes."""
     header_path = REPO_ROOT / "src" / "components" / "layout" / "Header.tsx"
+    notification_path = REPO_ROOT / "src" / "components" / "layout" / "NotificationCenter.tsx"
     content = header_path.read_text(encoding="utf-8")
+    notification_content = notification_path.read_text(encoding="utf-8")
 
     assert "aria-haspopup=\"menu\"" in content
     assert "aria-label={`Venue selector" in content
     assert "aria-expanded={scenarioMenuOpen && !isSimulating}" in content
+    assert "ArrowDown" in content
+    assert "Escape" in content
     assert "role=\"menu\"" in content
     assert "role=\"menuitem\"" in content
+    assert "ArrowLeft" in notification_content
+    assert "ArrowRight" in notification_content
+    assert "Escape" in notification_content
 
 
 def test_visual_focus_and_keyboard_zone_controls_exist() -> None:
@@ -71,6 +78,8 @@ def test_readme_has_security_and_accessibility_sections() -> None:
     assert "## Google SDK Integration Evidence" in content
     assert "GET /system/impact" in content
     assert "GET /google-services" in content
+    assert "GET /system/workflow" in content
+    assert "Judge Evaluation Script" in content
 
 
 def test_repository_has_quality_signal_files() -> None:
@@ -78,8 +87,11 @@ def test_repository_has_quality_signal_files() -> None:
     changelog = REPO_ROOT / "CHANGELOG.md"
     pyproject = REPO_ROOT / "pyproject.toml"
     vitest_config = REPO_ROOT / "vitest.config.ts"
+    functions_dir = REPO_ROOT / "functions"
 
     assert contributing.exists()
     assert changelog.exists()
     assert pyproject.exists()
     assert vitest_config.exists()
+    assert (functions_dir / "pipeline_consumer.js").exists()
+    assert (functions_dir / "index.js").exists()

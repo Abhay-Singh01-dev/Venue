@@ -78,6 +78,7 @@ def test_system_info_and_metrics_contracts() -> None:
     assert "cloud_logging" in info_payload["google_services"]
     assert "bigquery" in info_payload["google_services"]
     assert "cloud_storage" in info_payload["google_services"]
+    assert "pubsub" in info_payload["google_services"]
 
     impact_response = client.get("/system/impact")
     assert impact_response.status_code == 200

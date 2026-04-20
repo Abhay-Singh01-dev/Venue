@@ -1,22 +1,25 @@
 """Simulation control endpoints for phase management and reset."""
 
-from fastapi import APIRouter, HTTPException
+import datetime
+import logging
+import time
+
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 from app.firebase_client import db
+from app.core.settings import settings
 from app.models.api_response_models import (
     SimulationStatusResponse,
     MessageResponse,
     PhaseSetResponse,
     SimulationPlayResponse,
 )
-import logging
-import datetime
-import time
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/simulation", tags=["simulation"])
 
 _synthetic_is_paused = True
+_last_control_action_ts = {"play": 0.0, "pause": 0.0}
 
 
 def _to_float(value: object, default: float = 0.0) -> float:
@@ -40,6 +43,45 @@ def _to_int(value: object, default: int = 0) -> int:
 
 class PhaseRequest(BaseModel):
     phase: str  # pre_match|first_half|halftime|second_half|final_whistle
+
+
+def _extract_control_token(request: Request) -> str:
+    token = request.headers.get("x-flowstate-control-token", "").strip()
+    if token:
+        return token
+
+    authorization = request.headers.get("authorization", "").strip()
+    if authorization.lower().startswith("bearer "):
+        return authorization[7:].strip()
+
+    return ""
+
+
+def _require_control_token(request: Request) -> None:
+    configured_token = (settings.simulation_control_token or "").strip()
+    if not configured_token:
+        return
+
+    if _extract_control_token(request) != configured_token:
+        raise HTTPException(status_code=403, detail="Simulation control token required")
+
+
+def _enforce_mutation_rate_limit(action: str) -> None:
+    min_interval = max(0, int(settings.simulation_mutation_min_interval_seconds))
+    if min_interval <= 0:
+        return
+
+    now = time.monotonic()
+    last_action_ts = _last_control_action_ts.get(action, 0.0)
+    elapsed = now - last_action_ts
+    if elapsed < min_interval:
+        retry_after = max(1, int(min_interval - elapsed))
+        raise HTTPException(
+            status_code=429,
+            detail=f"Simulation control rate limit exceeded. Retry in {retry_after}s.",
+        )
+
+    _last_control_action_ts[action] = now
 
 @router.get("/status", response_model=SimulationStatusResponse)
 async def get_simulation_status() -> dict:
@@ -133,7 +175,7 @@ async def get_simulation_status() -> dict:
         }
 
 @router.post("/phase", response_model=PhaseSetResponse)
-async def set_phase(request: PhaseRequest) -> dict:
+async def set_phase(request: PhaseRequest, http_request: Request) -> dict:
     """
     Forces simulation to a specific match phase.
     The simulator process reads this from Firestore on next cycle.
@@ -150,6 +192,7 @@ async def set_phase(request: PhaseRequest) -> dict:
             detail=f"Invalid phase. Valid: {valid_phases}"
         )
     try:
+        _require_control_token(http_request)
         if db:
             db.collection("simulation").document("override").set({
                 "force_phase": request.phase,
@@ -161,14 +204,17 @@ async def set_phase(request: PhaseRequest) -> dict:
             "message": f"Phase set to {request.phase}",
             "phase": request.phase,
         }
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"POST /simulation/phase failed: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 @router.post("/reset", response_model=MessageResponse)
-async def reset_simulation() -> dict:
+async def reset_simulation(http_request: Request) -> dict:
     """Resets simulation to pre-match phase."""
     try:
+        _require_control_token(http_request)
         if db:
             db.collection("simulation").document("override").set({
                 "force_phase": "pre_match",
@@ -176,6 +222,8 @@ async def reset_simulation() -> dict:
             })
             
         return {"message": "Simulation reset to pre-match"}
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"POST /simulation/reset failed: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error")
@@ -231,9 +279,11 @@ async def get_simulation_heartbeat() -> dict:
         }
 
 @router.post("/play", response_model=SimulationPlayResponse)
-async def play_simulation() -> dict:
+async def play_simulation(http_request: Request) -> dict:
     global _synthetic_is_paused
     try:
+        _require_control_token(http_request)
+        _enforce_mutation_rate_limit("play")
         if db:
             run_for_seconds = 60
             now_epoch = time.time()
@@ -250,15 +300,19 @@ async def play_simulation() -> dict:
             run_for_seconds = 60
             _synthetic_is_paused = False
         return {"message": "Simulation running", "run_for_seconds": run_for_seconds}
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"POST /simulation/play failed: {e}", exc_info=True)
         _synthetic_is_paused = False
         return {"message": "Simulation running (fallback mode)", "run_for_seconds": 60}
 
 @router.post("/pause", response_model=MessageResponse)
-async def pause_simulation() -> dict:
+async def pause_simulation(http_request: Request) -> dict:
     global _synthetic_is_paused
     try:
+        _require_control_token(http_request)
+        _enforce_mutation_rate_limit("pause")
         if db:
             db.collection("simulation").document("control").set({
                 "is_paused": True,
@@ -272,6 +326,8 @@ async def pause_simulation() -> dict:
         else:
             _synthetic_is_paused = True
         return {"message": "Simulation paused"}
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"POST /simulation/pause failed: {e}", exc_info=True)
         _synthetic_is_paused = True

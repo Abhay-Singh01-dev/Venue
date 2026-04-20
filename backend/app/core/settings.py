@@ -21,6 +21,8 @@ class Settings(BaseSettings):
     gcs_bucket: str = "flowstate-ai-evidence"
     pubsub_enabled: bool = True
     pubsub_topic: str = "pipeline-run-completed"
+    simulation_control_token: str | None = None
+    simulation_mutation_min_interval_seconds: int = 2
     trigger_min_interval_seconds: int = 15
     max_request_bytes: int = 1_000_000
     cors_origins: Any = ["http://localhost:5173"]

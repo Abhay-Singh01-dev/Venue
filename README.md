@@ -58,6 +58,7 @@ Evaluator-friendly proof endpoints:
 - GET / -> confirms operational status plus ai, database, and deployment fields
 - GET /system/info -> confirms explicit google_services signals
 - GET /system/impact -> confirms quantified before/after problem-statement evidence
+- GET /system/workflow -> confirms Pub/Sub workflow evidence and downstream pointer metadata
 - GET /google-services -> confirms the consolidated Google runtime payload
 - GET /google-services/status -> confirms runtime Google SDK integration status including BigQuery and Cloud Storage
 - GET /google-services/evidence -> confirms live operation metadata (`operation_count`, `last_success_at`, `last_error`) per service
@@ -81,6 +82,21 @@ Validation completed against current workspace and Cloud Run deployment.
   - `GET /health/ready` returns `status: ready` with dependency states
 
 This snapshot reflects the latest deployed backend revision and test/build verification completed in the same submission cycle.
+
+## Judge Evaluation Script
+
+Use these commands in order to verify the score-critical paths:
+
+```bash
+curl https://flowstate-backend-156628510595.asia-south1.run.app/
+curl https://flowstate-backend-156628510595.asia-south1.run.app/system/info
+curl https://flowstate-backend-156628510595.asia-south1.run.app/system/impact
+curl https://flowstate-backend-156628510595.asia-south1.run.app/system/workflow
+curl https://flowstate-backend-156628510595.asia-south1.run.app/google-services/status
+curl https://flowstate-backend-156628510595.asia-south1.run.app/google-services/evidence
+```
+
+The workflow endpoint should show the latest Pub/Sub event ID, timestamp, run ID, and downstream evidence pointer.
 
 ## Google SDK Integration Evidence
 

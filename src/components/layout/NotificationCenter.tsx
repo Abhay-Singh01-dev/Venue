@@ -114,6 +114,17 @@ export function NotificationCenter() {
   });
   const badgeCount = Math.min(unreadCount, 9);
 
+  const cycleFilter = (direction: 1 | -1) => {
+    const order: Array<"all" | "unread" | "critical"> = [
+      "all",
+      "unread",
+      "critical",
+    ];
+    const currentIndex = order.indexOf(activeTab);
+    const nextIndex = (currentIndex + direction + order.length) % order.length;
+    setActiveTab(order[nextIndex]);
+  };
+
   const markAllAsRead = () => {
     setSeenIds((prev) => {
       const next = { ...prev };
@@ -125,10 +136,30 @@ export function NotificationCenter() {
   };
 
   return (
-    <div className="relative" ref={rootRef}>
+    <div
+      className="relative"
+      ref={rootRef}
+      onKeyDown={(event) => {
+        if (event.key === "Escape") {
+          setOpen(false);
+        }
+        if (event.key === "ArrowLeft") {
+          cycleFilter(-1);
+        }
+        if (event.key === "ArrowRight") {
+          cycleFilter(1);
+        }
+      }}
+    >
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
+        onKeyDown={(event) => {
+          if (event.key === "ArrowDown") {
+            event.preventDefault();
+            setOpen(true);
+          }
+        }}
         aria-label={`System notifications${badgeCount > 0 ? `, ${badgeCount} unread` : ""}`}
         aria-haspopup="menu"
         aria-expanded={open}

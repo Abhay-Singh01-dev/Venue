@@ -43,3 +43,15 @@ def test_simulation_pause_succeeds(app_client) -> None:
     response = app_client.post("/simulation/pause")
     assert response.status_code == 200
     assert response.json()["message"].startswith("Simulation paused")
+
+
+def test_simulation_play_rate_limited(app_client, monkeypatch) -> None:
+    import app.api.routes_simulation as routes_simulation
+
+    monkeypatch.setitem(routes_simulation._last_control_action_ts, "play", 0.0)
+
+    first = app_client.post("/simulation/play")
+    second = app_client.post("/simulation/play")
+
+    assert first.status_code == 200
+    assert second.status_code == 429
