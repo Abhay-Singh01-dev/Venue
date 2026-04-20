@@ -1,5 +1,6 @@
 """System health, stats, alerts, and logs endpoints."""
 
+import asyncio
 from fastapi import APIRouter, HTTPException
 from app.firebase_client import db
 from app.websocket.manager import manager
@@ -22,6 +23,35 @@ from datetime import datetime, timezone
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["system"])
+
+FIRESTORE_READ_TIMEOUT_SEC = 1.5
+
+
+async def _safe_firestore_get(collection: str, document: str) -> tuple[dict, bool]:
+    """Reads one Firestore document with a strict timeout and fallback."""
+    if not db:
+        return {}, False
+
+    def _read_doc() -> tuple[dict, bool]:
+        doc = db.collection(collection).document(document).get()
+        if not doc.exists:
+            return {}, False
+        return doc.to_dict() or {}, True
+
+    try:
+        data, exists = await asyncio.wait_for(
+            asyncio.to_thread(_read_doc),
+            timeout=FIRESTORE_READ_TIMEOUT_SEC,
+        )
+        return data, exists
+    except Exception as exc:
+        logger.warning(
+            "Firestore read fallback for %s/%s: %s",
+            collection,
+            document,
+            exc,
+        )
+        return {}, False
 
 
 def _synthetic_zones_for_stats() -> list[dict]:
@@ -60,23 +90,11 @@ async def root() -> dict:
         firestore_available = True
 
     if db:
-        try:
-            pipeline_doc = db.collection("pipeline").document("latest").get()
-            pipeline_data = pipeline_doc.to_dict() or {} if pipeline_doc.exists else {}
-            # Keep root lightweight to avoid quota churn from full collection scans.
-            firestore_available = True
-        except Exception as e:
-            logger.warning(f"Root health Firestore summary lookup failed: {e}")
-
-        try:
-            heartbeat_doc = db.collection("simulation").document("heartbeat").get()
-            heartbeat = heartbeat_doc.to_dict() or {} if heartbeat_doc.exists else {}
-            sim_phase = heartbeat.get("current_phase", "unknown")
-            sim_cycles = heartbeat.get("cycles_completed", 0)
-            is_paused = heartbeat.get("is_paused", True)
-            firestore_available = True
-        except Exception as e:
-            logger.warning(f"Root health heartbeat lookup failed: {e}")
+        pipeline_data, _ = await _safe_firestore_get("pipeline", "latest")
+        heartbeat, _ = await _safe_firestore_get("simulation", "heartbeat")
+        sim_phase = heartbeat.get("current_phase", "unknown")
+        sim_cycles = heartbeat.get("cycles_completed", 0)
+        is_paused = heartbeat.get("is_paused", True)
 
     run_at = pipeline_data.get("run_at", "never")
     gemini_status = "ok" if settings.gemini_api_key.strip() else "missing_key"
@@ -184,10 +202,8 @@ async def get_system_metrics() -> dict:
                 "websocket_connections": len(manager.active_connections),
             }
 
-        pipeline_doc = db.collection("pipeline").document("latest").get()
-        pipeline_data = pipeline_doc.to_dict() or {} if pipeline_doc.exists else {}
-
-        zones_count = sum(1 for _ in db.collection("zones").stream())
+        pipeline_data, _ = await _safe_firestore_get("pipeline", "latest")
+        zones_count = len(ZONE_CONFIG)
         writes_per_cycle = max(1, min(25, zones_count + 2))
 
         return {

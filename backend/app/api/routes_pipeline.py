@@ -1,5 +1,6 @@
 """AI pipeline output endpoints."""
 
+import asyncio
 from fastapi import APIRouter, HTTPException, BackgroundTasks
 from app.firebase_client import db
 from app.agents.pipeline import run_pipeline, _get_safe_empty_output
@@ -13,6 +14,8 @@ import logging
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/pipeline", tags=["pipeline"])
+
+FIRESTORE_READ_TIMEOUT_SEC = 1.5
 
 
 def _enrich_pipeline_payload(payload: dict) -> dict:
@@ -32,6 +35,70 @@ def _enrich_pipeline_payload(payload: dict) -> dict:
     }
     return payload
 
+
+async def _safe_pipeline_latest_get() -> tuple[dict, bool]:
+    """Reads pipeline/latest with strict timeout to avoid blocking async handlers."""
+    if not db:
+        return {}, False
+
+    def _read_doc() -> tuple[dict, bool]:
+        doc = db.collection("pipeline").document("latest").get()
+        if not doc.exists:
+            return {}, False
+        return doc.to_dict() or {}, True
+
+    try:
+        return await asyncio.wait_for(
+            asyncio.to_thread(_read_doc),
+            timeout=FIRESTORE_READ_TIMEOUT_SEC,
+        )
+    except Exception as exc:
+        logger.warning("GET /pipeline/latest fast-fail fallback: %s", exc)
+        return {}, False
+
+
+async def _safe_pipeline_history_get(limit: int) -> list[dict]:
+    """Reads lightweight pipeline history with strict timeout and graceful fallback."""
+    if not db:
+        return []
+
+    capped_limit = min(limit, 50)
+
+    def _read_history() -> list[dict]:
+        runs_ref = (
+            db.collection("pipeline").document("history")
+            .collection("runs")
+            .order_by("run_at", direction="DESCENDING")
+            .limit(capped_limit)
+        )
+
+        runs: list[dict] = []
+        for doc in runs_ref.stream():
+            data = doc.to_dict()
+            if data:
+                runs.append(
+                    {
+                        "run_id": data.get("run_id"),
+                        "run_at": data.get("run_at"),
+                        "source": data.get("source"),
+                        "hotspots": data.get("hotspots", []),
+                        "decisions_count": len(data.get("decisions", [])),
+                        "confidence_overall": data.get("confidence_overall"),
+                        "narration": data.get("communication", {}).get("narration"),
+                        "pipeline_duration_ms": data.get("pipeline_duration_ms"),
+                    }
+                )
+        return runs
+
+    try:
+        return await asyncio.wait_for(
+            asyncio.to_thread(_read_history),
+            timeout=FIRESTORE_READ_TIMEOUT_SEC,
+        )
+    except Exception as exc:
+        logger.warning("GET /pipeline/history fast-fail fallback: %s", exc)
+        return []
+
 @router.get("/latest", response_model=PipelineLatestResponse)
 async def get_latest_pipeline() -> dict:
     """Returns most recent AI pipeline output from Firestore."""
@@ -42,12 +109,12 @@ async def get_latest_pipeline() -> dict:
             payload["message"] = "No database connection available"
             return _enrich_pipeline_payload(payload)
             
-        doc = db.collection("pipeline").document("latest").get()
-        if not doc.exists:
+        latest_payload, exists = await _safe_pipeline_latest_get()
+        if not exists:
             payload = _get_safe_empty_output(fallback_run_id)
             payload["message"] = "No pipeline output yet — running first cycle"
             return _enrich_pipeline_payload(payload)
-        return _enrich_pipeline_payload(doc.to_dict())
+        return _enrich_pipeline_payload(latest_payload)
     except Exception as e:
         logger.error(f"GET /pipeline/latest failed: {e}", exc_info=True)
         payload = _get_safe_empty_output(f"fallback-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}")
@@ -63,27 +130,7 @@ async def get_pipeline_history(limit: int = 20) -> dict:
         if not db:
             return {"runs": [], "count": 0}
             
-        runs_ref = (
-            db.collection("pipeline").document("history")
-            .collection("runs")
-            .order_by("run_at", direction="DESCENDING")
-            .limit(min(limit, 50))
-        )
-        runs = []
-        for doc in runs_ref.stream():
-            data = doc.to_dict()
-            if data:
-                # return lightweight version for history list
-                runs.append({
-                    "run_id": data.get("run_id"),
-                    "run_at": data.get("run_at"),
-                    "source": data.get("source"),
-                    "hotspots": data.get("hotspots", []),
-                    "decisions_count": len(data.get("decisions", [])),
-                    "confidence_overall": data.get("confidence_overall"),
-                    "narration": data.get("communication", {}).get("narration"),
-                    "pipeline_duration_ms": data.get("pipeline_duration_ms"),
-                })
+        runs = await _safe_pipeline_history_get(limit)
         return {"runs": runs, "count": len(runs)}
     except Exception as e:
         logger.error(f"GET /pipeline/history failed: {e}", exc_info=True)

@@ -7,6 +7,7 @@ to Firestore. Runs every 30 seconds via APScheduler.
 import time
 import uuid
 import logging
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -17,11 +18,38 @@ from app.agents.agent_decision import run_decision
 from app.agents.agent_communicator import run_communicator
 
 logger = logging.getLogger(__name__)
+_firestore_executor = ThreadPoolExecutor(max_workers=4)
+_firestore_timeout_sec = 2.0
 
 # Module-level state — last successful output for fallback and impact tracking
 _last_successful_output: Optional[dict] = None
 _previous_decisions: list[dict] = []
 _active_alerts: set[str] = set()
+
+
+def _run_firestore_call_with_timeout(func, fallback):
+    """Executes blocking Firestore SDK calls with a strict timeout."""
+    future = _firestore_executor.submit(func)
+    try:
+        return future.result(timeout=_firestore_timeout_sec)
+    except FuturesTimeoutError:
+        logger.warning(
+            {
+                "event": "pipeline_firestore_timeout",
+                "component": "pipeline",
+                "timeout_seconds": _firestore_timeout_sec,
+            }
+        )
+        return fallback
+    except Exception as e:
+        logger.warning(
+            {
+                "event": "pipeline_firestore_call_failed",
+                "component": "pipeline",
+                "error": str(e),
+            }
+        )
+        return fallback
 
 
 def _get_zone_states_from_firestore() -> list[dict]:
@@ -30,12 +58,16 @@ def _get_zone_states_from_firestore() -> list[dict]:
         return []
 
     try:
-        zones_ref = db.collection("zones").stream()
-        zones = []
-        for doc in zones_ref:
-            data = doc.to_dict()
-            if data:
-                zones.append(data)
+        def _read_zones() -> list[dict]:
+            zones_ref = db.collection("zones").stream()
+            out = []
+            for doc in zones_ref:
+                data = doc.to_dict()
+                if data:
+                    out.append(data)
+            return out
+
+        zones = _run_firestore_call_with_timeout(_read_zones, [])
 
         zones.sort(key=lambda z: z.get("occupancy_pct", 0), reverse=True)
         logger.debug({"event": "pipeline_zone_read", "component": "pipeline", "zones": len(zones)})
@@ -57,8 +89,11 @@ def _get_phase_status_from_firestore() -> dict:
         return {"phase": "unknown"}
 
     try:
-        doc = db.collection("simulation").document("status").get()
-        return doc.to_dict() if doc.exists else {"phase": "unknown"}
+        def _read_phase() -> dict:
+            doc = db.collection("simulation").document("status").get()
+            return doc.to_dict() if doc.exists else {"phase": "unknown"}
+
+        return _run_firestore_call_with_timeout(_read_phase, {"phase": "unknown"})
     except Exception as e:
         logger.warning(
             {
