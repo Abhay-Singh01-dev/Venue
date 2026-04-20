@@ -26,20 +26,34 @@ def _to_float(value: object, default: float = 0.0) -> float:
     """Coerce mixed numeric payloads to float for response-model safety."""
     if value is None:
         return default
-    try:
+    if isinstance(value, bool):
         return float(value)
-    except (TypeError, ValueError):
-        return default
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        try:
+            return float(value)
+        except ValueError:
+            return default
+    return default
 
 
 def _to_int(value: object, default: int = 0) -> int:
     """Coerce mixed numeric payloads to int for response-model safety."""
     if value is None:
         return default
-    try:
+    if isinstance(value, bool):
         return int(value)
-    except (TypeError, ValueError):
-        return default
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return int(value)
+    if isinstance(value, str):
+        try:
+            return int(value)
+        except ValueError:
+            return default
+    return default
 
 class PhaseRequest(BaseModel):
     phase: str  # pre_match|first_half|halftime|second_half|final_whistle

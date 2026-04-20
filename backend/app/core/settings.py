@@ -47,4 +47,4 @@ class Settings(BaseSettings):
 
 # Module-level singleton initialized immediately
 # Python-dotenv implicitly handles loading the .env file configured above.
-settings = Settings()
+settings = Settings()  # type: ignore[call-arg]

@@ -52,12 +52,7 @@ export function GridLayoutSVG({
   }
 
   return (
-    <svg
-      viewBox="0 0 900 550"
-      className="w-full h-full"
-      aria-hidden="true"
-      focusable="false"
-    >
+    <svg viewBox="0 0 900 550" className="w-full h-full" focusable="false">
       <defs>
         <pattern
           id="grid-bg-g"

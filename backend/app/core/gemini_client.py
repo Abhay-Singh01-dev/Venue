@@ -2,19 +2,148 @@
 Shared Gemini client initialization and pre-configured model singletons.
 Eliminates overhead of creating new model bindings per request.
 """
+from __future__ import annotations
+
+import logging
+import os
+from typing import Any
+
 import google.generativeai as genai
 
 from app.core.settings import settings
 
 
+logger = logging.getLogger(__name__)
+
 # Bind globally once
 genai.configure(api_key=settings.gemini_api_key)
+
+_DEFAULT_MODEL_LADDER = (
+  "gemini-2.5-flash-lite",
+  "gemma-3-4b-it",
+  "gemma-3-1b-it",
+)
+
+_MODEL_FAILOVER_MARKERS = (
+  "resourceexhausted",
+  "quota",
+  "429",
+  "permissiondenied",
+  "403",
+  "notfound",
+  "404",
+  "deadlineexceeded",
+  "504",
+  "unavailable",
+  "internal",
+)
+
+
+def _parse_model_ladder(raw: str | None) -> list[str]:
+  if not raw:
+    return []
+
+  models: list[str] = []
+  for item in raw.split(","):
+    candidate = item.strip()
+    if candidate and candidate not in models:
+      models.append(candidate)
+  return models
+
+
+def _resolve_model_ladder(agent_env_var: str) -> list[str]:
+  per_agent = _parse_model_ladder(os.getenv(agent_env_var))
+  if per_agent:
+    return per_agent
+
+  shared = _parse_model_ladder(os.getenv("GEMINI_MODEL_LADDER"))
+  if shared:
+    return shared
+
+  return list(_DEFAULT_MODEL_LADDER)
+
+
+class _ModelRouter:
+  """Tries configured models in order and switches away from exhausted quotas."""
+
+  def __init__(
+    self,
+    role: str,
+    model_names: list[str],
+    generation_config: Any,
+    system_instruction: str,
+  ) -> None:
+    self._role = role
+    self._model_names = model_names
+    self._generation_config = generation_config
+    self._system_instruction = system_instruction
+    self._models: dict[str, Any] = {}
+    self._preferred_model_name = model_names[0]
+    self._active_model_name = model_names[0]
+
+  @property
+  def active_model_name(self) -> str:
+    return self._active_model_name
+
+  @property
+  def model_ladder(self) -> list[str]:
+    return list(self._model_names)
+
+  def _ordered_candidates(self) -> list[str]:
+    ordered = [self._preferred_model_name]
+    for model_name in self._model_names:
+      if model_name not in ordered:
+        ordered.append(model_name)
+    return ordered
+
+  def _bind_model(self, model_name: str) -> Any:
+    model = self._models.get(model_name)
+    if model is not None:
+      return model
+
+    model = genai.GenerativeModel(
+      model_name=model_name,
+      generation_config=self._generation_config,
+      system_instruction=self._system_instruction,
+    )
+    self._models[model_name] = model
+    return model
+
+  def _should_failover(self, exc: Exception) -> bool:
+    message = str(exc).lower()
+    return any(marker in message for marker in _MODEL_FAILOVER_MARKERS)
+
+  def generate_content(self, prompt: str, request_options: dict[str, Any] | None = None) -> Any:
+    candidates = self._ordered_candidates()
+    last_exc: Exception | None = None
+
+    for idx, model_name in enumerate(candidates):
+      try:
+        model = self._bind_model(model_name)
+        response = model.generate_content(prompt, request_options=request_options)
+        self._active_model_name = model_name
+        self._preferred_model_name = model_name
+        return response
+      except Exception as exc:
+        last_exc = exc
+        can_retry_with_another_model = idx < (len(candidates) - 1) and self._should_failover(exc)
+        if can_retry_with_another_model:
+          logger.warning(
+            "Gemini model %s failed for %s; trying next model in ladder.",
+            model_name,
+            self._role,
+          )
+          continue
+        raise
+
+    if last_exc is not None:
+      raise last_exc
+    raise RuntimeError(f"No Gemini models configured for role={self._role}")
 
 # Global helper for robust JSON parsing
 def safe_json_load(text: str) -> dict:
     import json
-    import logging
-    logger = logging.getLogger(__name__)
+
     try:
         # Simple extraction heuristics to find JSON blocks mapping
         if "```json" in text:
@@ -28,7 +157,7 @@ def safe_json_load(text: str) -> dict:
             
         return json.loads(text)
     except Exception as e:
-        logger.warning(f"JSON parsing failed, attempting recovery: {e}")
+        logger.warning("JSON parsing failed, attempting recovery: %s", e)
         return {}
 
 # -------------------------------------------------------------
@@ -62,13 +191,14 @@ You MUST return valid JSON matching this exact schema:
   "summary": "2-3 sentence specific summary of current situation"
 }"""
 
-analyst_model = genai.GenerativeModel(
-  model_name="gemini-2.5-flash",
-    generation_config=genai.GenerationConfig(
-        temperature=0.2,
-        response_mime_type="application/json",
-    ),
-    system_instruction=ANALYST_SYSTEM_PROMPT,
+analyst_model = _ModelRouter(
+  role="analyst",
+  model_names=_resolve_model_ladder("GEMINI_ANALYST_MODELS"),
+  generation_config=genai.GenerationConfig(
+    temperature=0.2,
+    response_mime_type="application/json",
+  ),
+  system_instruction=ANALYST_SYSTEM_PROMPT,
 )
 
 
@@ -111,13 +241,14 @@ You MUST return valid JSON matching this exact schema:
   "overall_prediction_confidence": number
 }"""
 
-predictor_model = genai.GenerativeModel(
-  model_name="gemini-2.5-flash",
-    generation_config=genai.GenerationConfig(
-        temperature=0.2,
-        response_mime_type="application/json",
-    ),
-    system_instruction=PREDICTOR_SYSTEM_PROMPT,
+predictor_model = _ModelRouter(
+  role="predictor",
+  model_names=_resolve_model_ladder("GEMINI_PREDICTOR_MODELS"),
+  generation_config=genai.GenerationConfig(
+    temperature=0.2,
+    response_mime_type="application/json",
+  ),
+  system_instruction=PREDICTOR_SYSTEM_PROMPT,
 )
 
 
@@ -162,13 +293,14 @@ You MUST return valid JSON matching this exact schema:
   "operations_summary": "2 sentence summary for ops team"
 }"""
 
-decision_model = genai.GenerativeModel(
-  model_name="gemini-2.5-flash",
-    generation_config=genai.GenerationConfig(
-        temperature=0.4,
-        response_mime_type="application/json",
-    ),
-    system_instruction=DECISION_SYSTEM_PROMPT,
+decision_model = _ModelRouter(
+  role="decision",
+  model_names=_resolve_model_ladder("GEMINI_DECISION_MODELS"),
+  generation_config=genai.GenerationConfig(
+    temperature=0.4,
+    response_mime_type="application/json",
+  ),
+  system_instruction=DECISION_SYSTEM_PROMPT,
 )
 
 
@@ -211,11 +343,35 @@ You MUST return valid JSON matching this exact schema:
   }
 }"""
 
-communicator_model = genai.GenerativeModel(
-  model_name="gemini-2.5-flash",
-    generation_config=genai.GenerationConfig(
-        temperature=0.4,
-        response_mime_type="application/json",
-    ),
-    system_instruction=COMMUNICATOR_SYSTEM_PROMPT,
+communicator_model = _ModelRouter(
+  role="communicator",
+  model_names=_resolve_model_ladder("GEMINI_COMMUNICATOR_MODELS"),
+  generation_config=genai.GenerationConfig(
+    temperature=0.4,
+    response_mime_type="application/json",
+  ),
+  system_instruction=COMMUNICATOR_SYSTEM_PROMPT,
 )
+
+
+def get_runtime_model_status() -> dict[str, Any]:
+  """Returns active and configured Gemini models for evaluator-facing diagnostics."""
+  agent_ladders = {
+    "analyst": analyst_model.model_ladder,
+    "predictor": predictor_model.model_ladder,
+    "decision": decision_model.model_ladder,
+    "communicator": communicator_model.model_ladder,
+  }
+  active_models = {
+    "analyst": analyst_model.active_model_name,
+    "predictor": predictor_model.active_model_name,
+    "decision": decision_model.active_model_name,
+    "communicator": communicator_model.active_model_name,
+  }
+
+  return {
+    "default_model_ladder": _resolve_model_ladder("GEMINI_MODEL_LADDER"),
+    "agent_model_ladders": agent_ladders,
+    "active_models": active_models,
+    "active_model": active_models.get("analyst"),
+  }

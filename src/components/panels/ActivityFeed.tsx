@@ -85,6 +85,7 @@ export function ActivityFeed() {
         aria-live="polite"
         aria-relevant="additions text"
         aria-label="Live activity events"
+        tabIndex={0}
         className="flex-1 overflow-y-auto space-y-1 pr-1 min-h-0"
         style={{ maxHeight: "240px" }}
       >

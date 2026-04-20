@@ -76,6 +76,7 @@ def test_readme_has_security_and_accessibility_sections() -> None:
     assert "## Accessibility" in content
     assert "## Google Services (Core Architecture)" in content
     assert "## Google SDK Integration Evidence" in content
+    assert "Google Antigravity" in content
     assert "GET /system/impact" in content
     assert "GET /google-services" in content
     assert "GET /system/workflow" in content

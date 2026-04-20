@@ -248,7 +248,6 @@ export function DigitalTwin() {
               viewBox="0 0 900 550"
               className="w-full h-full absolute inset-0"
               style={{ maxHeight: "500px" }}
-              aria-hidden="true"
               focusable="false"
             >
               {/* Venue-agnostic layout */}

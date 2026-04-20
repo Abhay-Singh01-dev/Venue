@@ -15,8 +15,10 @@ import sys
 
 # Force utf-8 encoding for Windows terminals printing emojis
 if sys.stdout.encoding != 'utf-8':
+    reconfigure = getattr(sys.stdout, "reconfigure", None)
     try:
-        sys.stdout.reconfigure(encoding='utf-8')
+        if callable(reconfigure):
+            reconfigure(encoding='utf-8')
     except Exception:
         pass
 
@@ -249,8 +251,8 @@ def main() -> None:
     
     logger.info("Entering simulation loop — WAIT STATE (Paused via API)")
     print("\n" + "=" * 70)
-    print(f"  MATCH LOADED | READY TO START")
-    print(f"  Hit 'Run Simulation' on the Frontend to begin!")
+    print("  MATCH LOADED | READY TO START")
+    print("  Hit 'Run Simulation' on the Frontend to begin!")
     print("=" * 70 + "\n")
     
     cycle_count = 0

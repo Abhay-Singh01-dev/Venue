@@ -9,6 +9,7 @@ import os
 import asyncio
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
+from typing import Any
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi import HTTPException, Request
@@ -26,7 +27,7 @@ from app.api.routes_zones import router as zones_router
 from app.api.routes_pipeline import router as pipeline_router
 from app.api.routes_simulation import router as simulation_router
 from app.api.routes_system import router as system_router
-from app.models.api_response_models import ErrorResponse
+from app.models.api_response_models import ErrorDetailResponse, ErrorResponse
 from app.simulation.simulator import VenueSimulator
 import time
 
@@ -127,12 +128,27 @@ async def simulation_loop(simulator: VenueSimulator) -> None:
     logger.info({"event": "simulation_loop_start", "component": "main", "interval_seconds": 5})
     
     try:
-        from simulation_runner import check_pause_state, check_phase_override, write_heartbeat
+        from simulation_runner import (
+            check_pause_state as runner_check_pause_state,
+            check_phase_override as runner_check_phase_override,
+            write_heartbeat as runner_write_heartbeat,
+        )
     except ImportError:
         logger.warning({"event": "simulation_runner_import_failed", "component": "main", "fallback": "basic_loop"})
-        check_pause_state = lambda database: False
-        check_phase_override = lambda sim, database: None
-        write_heartbeat = lambda database, cc, ps, pause: None
+
+        def runner_check_pause_state(db: Any) -> bool:
+            return False
+
+        def runner_check_phase_override(simulator: Any, db: Any) -> None:
+            return None
+
+        def runner_write_heartbeat(
+            db: Any,
+            cycle_count: int,
+            phase_status: dict[Any, Any],
+            is_paused: bool,
+        ) -> None:
+            return None
 
     cycle_count = 0
     while True:
@@ -147,8 +163,8 @@ async def simulation_loop(simulator: VenueSimulator) -> None:
             def run_sync_cycle():
                 nonlocal cycle_count
                 try:
-                    is_paused = check_pause_state(db)
-                    check_phase_override(simulator, db)
+                    is_paused = runner_check_pause_state(db)
+                    runner_check_phase_override(simulator, db)
                     
                     if not is_paused:
                         simulator.run_cycle()
@@ -168,7 +184,7 @@ async def simulation_loop(simulator: VenueSimulator) -> None:
                         )
                         
                     if cycle_count % 2 == 0:
-                        write_heartbeat(db, cycle_count, phase_status, is_paused)
+                        runner_write_heartbeat(db, cycle_count, phase_status, is_paused)
                         
                 except Exception as e:
                     logger.error(
@@ -267,11 +283,11 @@ app.include_router(simulation_router)
 @app.exception_handler(HTTPException)
 async def http_exception_handler(_: Request, exc: HTTPException) -> JSONResponse:
     payload = ErrorResponse(
-        error={
-            "code": f"http_{exc.status_code}",
-            "message": str(exc.detail),
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-        }
+        error=ErrorDetailResponse(
+            code=f"http_{exc.status_code}",
+            message=str(exc.detail),
+            timestamp=datetime.now(timezone.utc).isoformat(),
+        )
     )
     return JSONResponse(status_code=exc.status_code, content=payload.model_dump())
 
@@ -280,11 +296,11 @@ async def http_exception_handler(_: Request, exc: HTTPException) -> JSONResponse
 async def unhandled_exception_handler(_: Request, exc: Exception) -> JSONResponse:
     logger.error({"event": "unhandled_exception", "component": "main", "error": str(exc)}, exc_info=True)
     payload = ErrorResponse(
-        error={
-            "code": "internal_server_error",
-            "message": "Unexpected server error",
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-        }
+        error=ErrorDetailResponse(
+            code="internal_server_error",
+            message="Unexpected server error",
+            timestamp=datetime.now(timezone.utc).isoformat(),
+        )
     )
     return JSONResponse(status_code=500, content=payload.model_dump())
 
@@ -298,16 +314,18 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
     """
     await manager.connect(websocket)
     try:
-        zones = []
-        pipeline = {}
+        zones: list[dict[str, Any]] = []
+        pipeline: dict[str, Any] = {}
         
         if db:
             zones_ref = db.collection("zones").stream()
             zones = [doc.to_dict() for doc in zones_ref if doc.to_dict()]
             pipeline_doc = db.collection("pipeline").document("latest").get()
-            pipeline = pipeline_doc.to_dict() if pipeline_doc.exists else {}
+            pipeline_data = pipeline_doc.to_dict() if pipeline_doc.exists else {}
+            if isinstance(pipeline_data, dict):
+                pipeline = pipeline_data
             
-        optimized_pipeline = {}
+        optimized_pipeline: dict[str, Any] = {}
         if pipeline:
             optimized_pipeline = {
                 "run_id": pipeline.get("run_id"),

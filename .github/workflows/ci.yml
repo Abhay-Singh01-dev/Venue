@@ -33,19 +33,16 @@ jobs:
           pip install ruff mypy pip-audit
 
       - name: Ruff lint report
-        continue-on-error: true
         run: ruff check app tests --output-format=github
 
       - name: Mypy type report
-        continue-on-error: true
         run: mypy app --ignore-missing-imports
 
       - name: Python dependency audit
-        continue-on-error: true
         run: pip-audit -r requirements.txt
 
       - name: Run backend tests with coverage
-        run: pytest tests -q --cov=app --cov-report=term-missing --cov-report=xml --cov-fail-under=55
+        run: pytest tests -q --cov=app --cov-branch --cov-report=term-missing --cov-report=xml --cov-fail-under=55
 
       - name: Upload backend coverage artifact
         uses: actions/upload-artifact@v4
@@ -84,7 +81,7 @@ jobs:
         run: npm ci
 
       - name: ESLint frontend
-        run: npx eslint src --ext .ts,.tsx --max-warnings 20
+        run: npx eslint src --ext .ts,.tsx --max-warnings 0
 
       - name: Run frontend tests
         run: npm run test:run

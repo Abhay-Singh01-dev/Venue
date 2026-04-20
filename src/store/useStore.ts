@@ -1,176 +1,44 @@
 // ── FlowState AI — Global State Store ─────────────────────────────────
 import { create } from "zustand";
-import {
-  Zone,
-  Prediction,
-  SystemAction,
-  ActivityEvent,
-  AIReasoning,
-  TelemetryData,
-  Venue,
-  RiskLevel,
-  TrendDirection,
-} from "../types";
+import type { SystemAction } from "../types";
 import {
   simulationTick,
   generatePredictions,
   generateReasoning,
   generateAction,
   generateEvent,
-  generateTelemetry,
   generateInitialEvents,
   generateInitialActions,
 } from "../data/simulation";
 import { VENUES } from "../data/venues";
-
-type BackendZoneState = {
-  zone_id: string;
-  name: string;
-  type?: string;
-  occupancy_pct: number;
-  flow_rate: number;
-  queue_depth: number;
-  risk_level: string;
-  trend: string;
-  capacity: number;
-  current_count: number;
-  adjacent_zones?: string[];
-  updated_at?: string;
-};
-
-type BackendPrediction = {
-  zone_id: string;
-  zone_name: string;
-  current_pct: number;
-  predicted_pct: number;
-  confidence: number;
-  uncertainty_reason: string;
-  risk_trajectory: string;
-  minutes_to_critical?: number | null;
-};
-
-type BackendDecision = {
-  action_type: string;
-  target_zone: string;
-  instruction: string;
-  priority: string;
-  expected_impact: string;
-};
-
-type BackendReasoningChain = {
-  cause: string;
-  trend: string;
-  prediction: string;
-  reasoning: string;
-  action: string;
-  status: string;
-};
-
-type BackendPipeline = {
-  run_id: string;
-  run_at: string;
-  source: string;
-  hotspots: string[];
-  cascade_zones: string[];
-  predictions: BackendPrediction[];
-  decisions: BackendDecision[];
-  impacts: Array<Record<string, unknown>>;
-  communication: {
-    attendee_notification: string;
-    staff_alert: string;
-    signage_message: string;
-    narration: string;
-    reasoning_chain: BackendReasoningChain;
-  };
-  confidence_overall: number;
-  pipeline_duration_ms: number;
-};
-
-type BackendActivity = {
-  event_id: string;
-  event_type: string;
-  message: string;
-  zone_id?: string | null;
-  severity?: string | null;
-  timestamp: string;
-  color: string;
-};
-
-type BackendSnapshot = {
-  zones?: BackendZoneState[];
-  pipeline?: BackendPipeline | null;
-  activity?: BackendActivity[];
-};
-
-// ── Store Interface ───────────────────────────────────────────────────
-
-interface FlowStateStore {
-  // Data
-  zones: Zone[];
-  selectedZoneId: string | null;
-  telemetryData: Record<string, TelemetryData>;
-  reasoning: AIReasoning;
-  predictions: Prediction[];
-  actions: SystemAction[];
-  activityFeed: ActivityEvent[];
-
-  // Venue
-  currentVenueId: string;
-  availableVenues: Venue[];
-  setVenue: (venueId: string) => void;
-
-  // UI State
-  predictionMode: "current" | "predicted";
-  aiCycleCountdown: number;
-  isSimulating: boolean;
-  simulationSecondsRemaining: number;
-
-  // System Health & Transparency (PHASE 1-2)
-  systemHealth: "healthy" | "degraded" | "offline";
-  pipelineSource: "live" | "cached" | "offline";
-  pipelineDurationMs: number;
-  lastPipelineRun: string | null;
-  lastDataUpdate: Date;
-  pipelineFallbackReason: string | null;
-
-  // Editor State
-  editMode: boolean;
-  tempVenue: Venue | null;
-  editorSelectedZoneId: string | null;
-  editorPathSource: string | null;
-  isAddingPath: boolean;
-  backendSyncStatus: "idle" | "connecting" | "live" | "error";
-
-  // Simulation Actions
-  selectZone: (id: string | null) => void;
-  togglePredictionMode: () => void;
-  tick: () => void;
-  startSimulation: (scenarioType?: string) => void;
-  stopSimulation: () => void;
-  startBackendBridge: () => void;
-  stopBackendBridge: () => void;
-
-  // Editor Actions
-  toggleEditMode: () => void;
-  cancelEditing: () => void;
-  selectEditorZone: (id: string | null) => void;
-  toggleAddingPath: () => void;
-  updateZonePosition: (id: string, position: { x: number; y: number }) => void;
-  updateZoneData: (id: string, updates: Partial<Zone>) => void;
-  addZone: () => void;
-  deleteZone: (id: string) => void;
-  addPath: (from: string, to: string) => void;
-  removePath: (pathId: string) => void;
-  saveCustomVenue: (name: string) => void;
-  deleteCustomVenue: (id: string) => void;
-}
+import type {
+  BackendActivity,
+  BackendPipeline,
+  BackendSnapshot,
+  BackendZoneState,
+  FlowStateStore,
+} from "./storeTypes";
+import {
+  BACKEND_WS_URL,
+  buildBackendUrl,
+  getBackendZoneId,
+  mapBackendActivityType,
+  mapBackendPredictionTrend,
+  mapBackendRiskLevel,
+  mapBackendTrend,
+  normalizeConfidencePercent,
+} from "./backendUtils";
+import { createVenueEditorActions } from "./slices/venueEditorActions";
 
 let backendSocket: WebSocket | null = null;
-let backendPollHandle: ReturnType<typeof setInterval> | null = null;
+type BrowserIntervalHandle = number;
+type BrowserTimeoutHandle = number;
+
+let backendPollHandle: BrowserIntervalHandle | null = null;
 let latestBackendSnapshot: BackendSnapshot | null = null;
 let backendBridgeStopping = false;
-let simulationAutoPauseHandle: ReturnType<typeof setTimeout> | null = null;
-let simulationCountdownHandle: ReturnType<typeof setInterval> | null = null;
+let simulationAutoPauseHandle: BrowserTimeoutHandle | null = null;
+let simulationCountdownHandle: BrowserIntervalHandle | null = null;
 let simulationUiLocked = false;
 type StoreSet = (
   partial:
@@ -182,82 +50,6 @@ type StoreGet = () => FlowStateStore;
 
 let storeSet: StoreSet | null = null;
 let storeGet: StoreGet | null = null;
-const EDIT_CANVAS_SHIFT_X = 150;
-const EDIT_CANVAS_SHIFT_Y = 35;
-const STADIUM_ZONE_ID_MAP: Record<string, string> = {
-  "gate-a": "gate-a",
-  "gate-b": "gate-b",
-  "gate-c": "gate-c",
-  "gate-d": "gate-d",
-  "gate-e": "gate-e",
-  "gate-f": "gate-f",
-  "north-concourse": "north",
-  "south-concourse": "south",
-  "east-concourse": "east",
-  "west-concourse": "west",
-  "field-level": "field",
-  "upper-deck": "upper-deck",
-};
-
-const BACKEND_ZONE_ID_TO_FRONTEND_ID = Object.entries(
-  STADIUM_ZONE_ID_MAP,
-).reduce(
-  (mapping, [backendId, frontendId]) => {
-    mapping[frontendId] = backendId;
-    return mapping;
-  },
-  {} as Record<string, string>,
-);
-
-const BACKEND_API_URL = (
-  import.meta.env.VITE_API_URL || "http://localhost:8080"
-).replace(/\/$/, "");
-const BACKEND_WS_URL = (
-  import.meta.env.VITE_WS_URL || BACKEND_API_URL.replace(/^http/, "ws") + "/ws"
-).replace(/\/$/, "");
-
-function getBackendZoneId(frontendZoneId: string): string | null {
-  return BACKEND_ZONE_ID_TO_FRONTEND_ID[frontendZoneId] ?? null;
-}
-
-function mapBackendRiskLevel(riskLevel: string): RiskLevel {
-  if (riskLevel === "critical") return "critical";
-  if (riskLevel === "high") return "high";
-  if (riskLevel === "moderate") return "moderate";
-  return "low";
-}
-
-function mapBackendTrend(trend: string): TrendDirection {
-  if (trend === "rising") return "rising";
-  if (trend === "falling") return "falling";
-  return "stable";
-}
-
-function mapBackendPredictionTrend(
-  prediction: BackendPrediction,
-): "up" | "down" {
-  return prediction.risk_trajectory === "improving" ? "down" : "up";
-}
-
-function mapBackendActivityType(
-  eventType: string,
-  severity?: string | null,
-): ActivityEvent["type"] {
-  if (severity === "critical") return "critical";
-  if (severity === "high") return "warning";
-  if (eventType === "resolution") return "success";
-  if (eventType === "system") return "info";
-  return eventType === "action" ? "info" : "warning";
-}
-
-function normalizeConfidencePercent(value: number): number {
-  const percent = value <= 1 ? value * 100 : value;
-  return Math.max(0, Math.min(100, Math.round(percent)));
-}
-
-function buildBackendUrl(path: string): string {
-  return new URL(path, `${BACKEND_API_URL}/`).toString();
-}
 
 async function setBackendSimulationControl(
   action: "play" | "pause",
@@ -489,290 +281,13 @@ export const useStore = create<FlowStateStore>((set, get) => ({
   isAddingPath: false,
   backendSyncStatus: "idle",
 
-  // ── Select / Deselect Zone ────────────────────────────────────────
-  selectZone: (id) => {
-    const state = get();
-
-    // Toggle: clicking the same zone closes telemetry
-    if (id === state.selectedZoneId) {
-      set({ selectedZoneId: null });
-      return;
-    }
-
-    // Generate telemetry data on first click
-    if (id && !state.telemetryData[id]) {
-      const zone = state.zones.find((z) => z.id === id);
-      if (zone) {
-        set({
-          selectedZoneId: id,
-          telemetryData: {
-            ...state.telemetryData,
-            [id]: generateTelemetry(zone),
-          },
-        });
-        return;
+  ...createVenueEditorActions(set, get, {
+    applyLatestBackendSnapshot: () => {
+      if (latestBackendSnapshot) {
+        applyBackendSnapshot(latestBackendSnapshot);
       }
-    }
-
-    set({ selectedZoneId: id });
-  },
-
-  // ── Switch Venue ──────────────────────────────────────────────────
-  setVenue: (venueId) => {
-    // Search availableVenues (includes custom venues saved at runtime)
-    const state = get();
-    const venue = state.availableVenues.find((v) => v.id === venueId);
-    if (!venue) return;
-    set({
-      currentVenueId: venueId,
-      zones: venue.zones,
-      selectedZoneId: null,
-      telemetryData: {},
-      predictionMode: "current",
-      predictions: generatePredictions(venue.zones),
-      reasoning: generateReasoning(venue.zones),
-      aiCycleCountdown: 30,
-      // Exit edit mode if switching venue
-      editMode: false,
-      tempVenue: null,
-      editorSelectedZoneId: null,
-      editorPathSource: null,
-      isAddingPath: false,
-    });
-    if (venueId === "stadium" && latestBackendSnapshot) {
-      applyBackendSnapshot(latestBackendSnapshot);
-    }
-  },
-
-  // ── Toggle Edit Mode ─────────────────────────────────────────────
-  toggleEditMode: () => {
-    const state = get();
-    if (state.editMode) {
-      // Already editing — cancel
-      set({
-        editMode: false,
-        tempVenue: null,
-        editorSelectedZoneId: null,
-        editorPathSource: null,
-        isAddingPath: false,
-      });
-      return;
-    }
-    const activeVenue =
-      state.availableVenues.find((v) => v.id === state.currentVenueId) ??
-      state.availableVenues[0];
-    const shouldCenterForEdit = !activeVenue.isCustom;
-    // Deep-clone venue; ensure all paths have IDs for deletability
-    const zones = activeVenue.zones.map((z) => ({
-      ...z,
-      position: shouldCenterForEdit
-        ? {
-            x: Math.max(80, Math.min(1120, z.position.x + EDIT_CANVAS_SHIFT_X)),
-            y: Math.max(40, Math.min(580, z.position.y + EDIT_CANVAS_SHIFT_Y)),
-          }
-        : z.position,
-    }));
-    const paths = activeVenue.paths.map((p, i) => ({
-      ...p,
-      id: p.id ?? `path-${Date.now()}-${i}`,
-    }));
-    set({
-      editMode: true,
-      tempVenue: { ...activeVenue, zones, paths },
-      editorSelectedZoneId: null,
-      editorPathSource: null,
-      isAddingPath: false,
-    });
-  },
-
-  // ── Cancel Editing ──────────────────────────────────────────────────
-  cancelEditing: () =>
-    set({
-      editMode: false,
-      tempVenue: null,
-      editorSelectedZoneId: null,
-      editorPathSource: null,
-      isAddingPath: false,
-    }),
-
-  // ── Select Editor Zone (handles path-creation flow) ─────────────────
-  selectEditorZone: (id) => {
-    const state = get();
-    if (state.isAddingPath) {
-      if (id === null) {
-        // Background click — cancel path mode
-        set({ isAddingPath: false, editorPathSource: null });
-      } else if (!state.editorPathSource) {
-        // First click: set source zone
-        set({ editorPathSource: id });
-      } else if (id !== state.editorPathSource) {
-        // Second click: create path, exit path mode
-        get().addPath(state.editorPathSource, id);
-      }
-      return;
-    }
-    set({ editorSelectedZoneId: id });
-  },
-
-  // ── Toggle Add-Path Mode ───────────────────────────────────────────
-  toggleAddingPath: () => {
-    const s = get();
-    if (s.isAddingPath) {
-      set({ isAddingPath: false, editorPathSource: null });
-    } else {
-      set({
-        isAddingPath: true,
-        editorPathSource: null,
-        editorSelectedZoneId: null,
-      });
-    }
-  },
-
-  // ── Update Zone Position (on drag end) ─────────────────────────────
-  updateZonePosition: (id, position) => {
-    const s = get();
-    if (!s.tempVenue) return;
-    const zones = s.tempVenue.zones.map((z) =>
-      z.id === id ? { ...z, position } : z,
-    );
-    set({ tempVenue: { ...s.tempVenue, zones } });
-  },
-
-  // ── Update Zone Data (from ZoneEditPanel) ───────────────────────────
-  updateZoneData: (id, updates) => {
-    const s = get();
-    if (!s.tempVenue) return;
-    const zones = s.tempVenue.zones.map((z) =>
-      z.id === id ? { ...z, ...updates } : z,
-    );
-    set({ tempVenue: { ...s.tempVenue, zones } });
-  },
-
-  // ── Add Zone (max 12) ───────────────────────────────────────────────
-  addZone: () => {
-    const s = get();
-    if (!s.tempVenue || s.tempVenue.zones.length >= 12) return;
-    const idx = s.tempVenue.zones.length;
-    // Spread new zones around canvas center to avoid immediate overlap
-    const offsets = [
-      [0, 0],
-      [-160, -80],
-      [160, -80],
-      [-160, 80],
-      [160, 80],
-      [0, -120],
-      [0, 120],
-      [-240, 0],
-      [240, 0],
-      [-80, -120],
-      [80, 120],
-      [-240, -80],
-    ];
-    const [ox, oy] = offsets[idx % offsets.length];
-    const newZone: Zone = {
-      id: `zone-${Date.now()}`,
-      name: `Zone ${idx + 1}`,
-      shortName: `Z${idx + 1}`,
-      capacity: 50,
-      activeVisitors: 500,
-      maxCapacity: 1000,
-      flowRate: 80,
-      trend: "stable",
-      riskLevel: "moderate",
-      type: "zone",
-      importance: 0.5,
-      position: {
-        x: Math.max(80, Math.min(820, 450 + ox)),
-        y: Math.max(40, Math.min(510, 275 + oy)),
-      },
-    };
-    set({
-      tempVenue: { ...s.tempVenue, zones: [...s.tempVenue.zones, newZone] },
-    });
-  },
-
-  // ── Delete Zone + its connected paths ─────────────────────────────────
-  deleteZone: (id) => {
-    const s = get();
-    if (!s.tempVenue) return;
-    const zones = s.tempVenue.zones.filter((z) => z.id !== id);
-    const paths = s.tempVenue.paths.filter((p) => p.from !== id && p.to !== id);
-    set({
-      tempVenue: { ...s.tempVenue, zones, paths },
-      editorSelectedZoneId:
-        s.editorSelectedZoneId === id ? null : s.editorSelectedZoneId,
-    });
-  },
-
-  // ── Add Path (prevents duplicates) ────────────────────────────────────
-  addPath: (from, to) => {
-    const s = get();
-    if (!s.tempVenue) return;
-    // Prevent duplicate in either direction
-    const exists = s.tempVenue.paths.some(
-      (p) =>
-        (p.from === from && p.to === to) || (p.from === to && p.to === from),
-    );
-    const newPath = { id: `path-${Date.now()}`, from, to };
-    set({
-      tempVenue: exists
-        ? s.tempVenue
-        : { ...s.tempVenue, paths: [...s.tempVenue.paths, newPath] },
-      editorPathSource: null,
-      isAddingPath: false,
-    });
-  },
-
-  // ── Remove Path by ID ──────────────────────────────────────────────────
-  removePath: (pathId) => {
-    const s = get();
-    if (!s.tempVenue) return;
-    const paths = s.tempVenue.paths.filter((p) => p.id !== pathId);
-    set({ tempVenue: { ...s.tempVenue, paths } });
-  },
-
-  // ── Save Custom Venue ──────────────────────────────────────────────────
-  saveCustomVenue: (name) => {
-    const s = get();
-    if (!s.tempVenue || s.tempVenue.zones.length === 0) return;
-    const customCount = s.availableVenues.filter((v) => v.isCustom).length;
-    const venueName = name.trim() || `Custom Venue ${customCount + 1}`;
-    const venueId = `custom-${Date.now()}`;
-    const newVenue: Venue = {
-      ...s.tempVenue,
-      id: venueId,
-      name: venueName,
-      layoutType: "custom",
-      isCustom: true,
-    };
-    set({
-      availableVenues: [...s.availableVenues, newVenue],
-      currentVenueId: venueId,
-      zones: newVenue.zones,
-      editMode: false,
-      tempVenue: null,
-      editorSelectedZoneId: null,
-      editorPathSource: null,
-      isAddingPath: false,
-      selectedZoneId: null,
-      telemetryData: {},
-      predictionMode: "current",
-      predictions: generatePredictions(newVenue.zones),
-      reasoning: generateReasoning(newVenue.zones),
-      aiCycleCountdown: 30,
-    });
-  },
-
-  // ── Delete Custom Venue ───────────────────────────────────────────────
-  deleteCustomVenue: (id) => {
-    const s = get();
-    const newVenues = s.availableVenues.filter((v) => v.id !== id);
-    set({ availableVenues: newVenues });
-    // If we deleted the current venue, fallback to the first default venue
-    if (s.currentVenueId === id && newVenues.length > 0) {
-      get().setVenue(newVenues[0].id);
-    }
-  },
+    },
+  }),
 
   // ── Toggle Prediction Mode ────────────────────────────────────────
   togglePredictionMode: () =>

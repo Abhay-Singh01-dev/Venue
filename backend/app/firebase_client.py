@@ -18,8 +18,8 @@ logger = logging.getLogger(__name__)
 
 
 class FirebaseClient:
-    def __init__(self):
-        self.db = None
+    def __init__(self) -> None:
+        self.db: firestore.Client | None = None
         
         # Avoid double initialization
         if firebase_admin._apps:
@@ -83,7 +83,7 @@ class FirebaseClient:
         self.db = firestore.client()
         logger.info("Firebase initialized successfully for project ID: %s", settings.firebase_project_id)
 
-    def get_db(self) -> firestore.Client:
+    def get_db(self) -> firestore.Client | None:
         """
         Returns the Firestore client.
         This client provides access to the database for all persistent operations.
@@ -97,9 +97,10 @@ class FirebaseClient:
 
 # Module-level singleton
 try:
-    firebase_client = FirebaseClient()
-    db = firebase_client.get_db()
-except RuntimeError as e:
+    _firebase_client = FirebaseClient()
+    firebase_client: FirebaseClient | None = _firebase_client
+    db: firestore.Client | None = _firebase_client.get_db()
+except RuntimeError:
     logger.warning("Running without Firebase credentials. Db will be None.")
     firebase_client = None
     db = None

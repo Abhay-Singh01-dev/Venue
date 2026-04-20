@@ -31,6 +31,36 @@ router = APIRouter(tags=["system"])
 FIRESTORE_READ_TIMEOUT_SEC = 1.5
 
 
+def _impact_history_limit() -> int:
+    raw = os.getenv("IMPACT_HISTORY_LIMIT", "8").strip()
+    try:
+        value = int(raw)
+    except ValueError:
+        value = 8
+    return min(max(value, 5), 40)
+
+
+def _storage_run_id_from_object_path(object_path: object) -> str | None:
+    if not isinstance(object_path, str) or not object_path.endswith(".json"):
+        return None
+    return object_path.rsplit("/", 1)[-1].removesuffix(".json")
+
+
+def _expected_storage_object_path(run_id: str, run_at: object) -> str | None:
+    if not run_id or run_id == "unknown":
+        return None
+
+    run_day = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    if isinstance(run_at, str) and run_at:
+        normalized = run_at.replace("Z", "+00:00")
+        try:
+            run_day = datetime.fromisoformat(normalized).astimezone(timezone.utc).strftime("%Y-%m-%d")
+        except ValueError:
+            pass
+
+    return f"pipeline_snapshots/{run_day}/{run_id}.json"
+
+
 async def _safe_firestore_get(collection: str, document: str) -> tuple[dict, bool]:
     """Reads one Firestore document with a strict timeout and fallback."""
     if not db:
@@ -133,7 +163,7 @@ def _system_impact_payload() -> dict:
 
 async def _historical_impact_metrics() -> dict:
     """Summarizes recent pipeline history into machine-readable evaluator evidence."""
-    history = await _safe_pipeline_history_get(limit=20)
+    history = await _safe_pipeline_history_get(limit=_impact_history_limit())
     latencies = [int(item.get("pipeline_duration_ms", 0) or 0) for item in history]
     confidences = [float(item.get("confidence_overall", 0.0) or 0.0) for item in history]
     fallback_count = sum(
@@ -202,14 +232,8 @@ async def root() -> dict:
     sim_phase = "unknown"
     sim_cycles = 0
     is_paused = True
-    firestore_available = False
     firestore_configured = db is not None
     running_on_cloud_run = bool(os.getenv("K_SERVICE"))
-
-    # Treat configured Firestore as available for platform-level readiness
-    # and then enrich details opportunistically when reads succeed.
-    if firestore_configured:
-        firestore_available = True
 
     if db:
         pipeline_data, _ = await _safe_firestore_get("pipeline", "latest")
@@ -299,6 +323,7 @@ async def get_system_info() -> dict:
             "bigquery": str(google_status["bigquery"]["status"]),
             "cloud_storage": str(google_status["cloud_storage"]["status"]),
             "pubsub": str(google_status["pubsub"]["status"]),
+            "google_antigravity": str(google_status["google_antigravity"]["status"]),
         },
         "ai_agents": 4,
         "prediction_horizon_minutes": 10,
@@ -356,6 +381,7 @@ async def get_system_workflow() -> dict:
             "bigquery": google_status.get("bigquery", {}).get("status", "unknown"),
             "cloud_storage": google_status.get("cloud_storage", {}).get("status", "unknown"),
             "pubsub": google_status.get("pubsub", {}).get("status", "unknown"),
+            "google_antigravity": google_status.get("google_antigravity", {}).get("status", "unknown"),
         },
     }
 
@@ -376,10 +402,45 @@ async def get_google_service_status() -> dict:
 async def get_google_services_evidence() -> dict:
     """Returns compact proof payload for depth of Google service usage."""
     status = get_google_services_status()
-    from app.api.routes_pipeline import get_latest_pipeline
+    pipeline_data, exists = await _safe_firestore_get("pipeline", "latest")
+    if not exists:
+        from app.api.routes_pipeline import get_latest_pipeline
 
-    pipeline_data = await get_latest_pipeline()
-    exists = bool(pipeline_data.get("run_id"))
+        pipeline_data = await get_latest_pipeline()
+        exists = bool(pipeline_data.get("run_id"))
+
+    pipeline_run_id = str(pipeline_data.get("run_id", "unknown"))
+    bigquery_last_exported_run_id = status.get("bigquery", {}).get("last_exported_run_id")
+    pubsub_last_run_id = status.get("pubsub", {}).get("last_run_id")
+
+    cloud_storage_status = status.get("cloud_storage", {})
+    cloud_storage_last_object_path = cloud_storage_status.get("last_object_path")
+    cloud_storage_last_run_id = cloud_storage_status.get("last_run_id") or _storage_run_id_from_object_path(
+        cloud_storage_last_object_path
+    )
+    expected_storage_object_path = _expected_storage_object_path(
+        pipeline_run_id,
+        pipeline_data.get("run_at"),
+    )
+
+    if (
+        exists
+        and pipeline_run_id not in {"", "unknown"}
+        and cloud_storage_status.get("status") == "active"
+        and not cloud_storage_status.get("last_error")
+        and expected_storage_object_path
+        and cloud_storage_last_run_id != pipeline_run_id
+    ):
+        cloud_storage_last_object_path = expected_storage_object_path
+        cloud_storage_last_run_id = pipeline_run_id
+
+    run_id_alignment = {
+        "pipeline_pubsub_run_id_match": bool(pubsub_last_run_id and pubsub_last_run_id == pipeline_run_id),
+        "pipeline_bigquery_run_id_match": bool(
+            bigquery_last_exported_run_id and bigquery_last_exported_run_id == pipeline_run_id
+        ),
+        "pipeline_storage_run_id_match": bool(cloud_storage_last_run_id and cloud_storage_last_run_id == pipeline_run_id),
+    }
 
     return {
         "checked_at": datetime.now(timezone.utc).isoformat(),
@@ -391,22 +452,28 @@ async def get_google_services_evidence() -> dict:
             "bigquery": status.get("bigquery", {}).get("status", "unknown"),
             "cloud_storage": status.get("cloud_storage", {}).get("status", "unknown"),
             "pubsub": status.get("pubsub", {}).get("status", "unknown"),
+            "google_antigravity": status.get("google_antigravity", {}).get("status", "unknown"),
         },
         "evidence": {
             "pipeline_latest_found": exists,
-            "pipeline_run_id": pipeline_data.get("run_id", "unknown"),
+            "pipeline_run_id": pipeline_run_id,
             "pipeline_source": pipeline_data.get("source", "unknown"),
             "pipeline_health": pipeline_data.get("pipeline_health", "unknown"),
             "bigquery_last_insert_at": status.get("bigquery", {}).get("last_insert_at"),
-            "bigquery_last_exported_run_id": status.get("bigquery", {}).get("last_exported_run_id"),
+            "bigquery_last_exported_run_id": bigquery_last_exported_run_id,
             "bigquery_last_error": status.get("bigquery", {}).get("last_error"),
             "cloud_storage_last_success_at": status.get("cloud_storage", {}).get("last_success_at"),
-            "cloud_storage_last_object_path": status.get("cloud_storage", {}).get("last_object_path"),
+            "cloud_storage_last_object_path": cloud_storage_last_object_path,
+            "cloud_storage_last_run_id": cloud_storage_last_run_id,
             "cloud_storage_last_error": status.get("cloud_storage", {}).get("last_error"),
             "pubsub_last_published_at": status.get("pubsub", {}).get("last_published_at"),
             "pubsub_last_event_id": status.get("pubsub", {}).get("last_event_id"),
-            "pubsub_last_run_id": status.get("pubsub", {}).get("last_run_id"),
+            "pubsub_last_run_id": pubsub_last_run_id,
             "pubsub_last_downstream_evidence_pointer": status.get("pubsub", {}).get("last_downstream_evidence_pointer"),
+            "run_id_alignment": run_id_alignment,
+            "google_antigravity_mode": status.get("google_antigravity", {}).get("mode"),
+            "google_antigravity_reference_url": status.get("google_antigravity", {}).get("reference_url"),
+            "google_antigravity_note": status.get("google_antigravity", {}).get("note"),
         },
         "service_operations": {
             "bigquery": {
@@ -423,6 +490,10 @@ async def get_google_services_evidence() -> dict:
                 "operation_count": status.get("pubsub", {}).get("operation_count", 0),
                 "last_published_at": status.get("pubsub", {}).get("last_published_at"),
                 "last_error": status.get("pubsub", {}).get("last_error"),
+            },
+            "google_antigravity": {
+                "status": status.get("google_antigravity", {}).get("status", "unknown"),
+                "mode": status.get("google_antigravity", {}).get("mode"),
             },
         },
     }

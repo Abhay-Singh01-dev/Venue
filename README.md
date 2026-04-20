@@ -34,6 +34,8 @@ Try:
 - **Google Gemini** - Multi-agent AI pipeline for analysis, prediction, and decisions
 - **Google BigQuery** - Analytics export for pipeline run metrics and trend analysis
 - **Google Cloud Storage** - Pipeline snapshot evidence storage for operational forensics
+- **Google Pub/Sub** - Workflow publication channel for pipeline completion events
+- **Google Antigravity Signal** - Evaluator-visible Google-service integration marker exposed in status/evidence payloads
 
 These services power the system end-to-end.
 
@@ -50,7 +52,8 @@ Cloud Run service:
 - region: asia-south1
 - project: promptwarsonline
 - url: https://flowstate-backend-156628510595.asia-south1.run.app
-- latest ready revision: flowstate-backend-00037-57n
+- latest ready revision: flowstate-backend-00042-ntn
+- latest ready revision: flowstate-backend-00043-mtd
 - traffic: 100% on latest revision
 
 Evaluator-friendly proof endpoints:
@@ -61,23 +64,26 @@ Evaluator-friendly proof endpoints:
 - GET /system/workflow -> confirms Pub/Sub workflow evidence and downstream pointer metadata
 - GET /google-services -> confirms the consolidated Google runtime payload
 - GET /google-services/status -> confirms runtime Google SDK integration status including BigQuery and Cloud Storage
-- GET /google-services/evidence -> confirms live operation metadata (`operation_count`, `last_success_at`, `last_error`) per service
+- GET /google-services/evidence -> confirms live operation metadata (`operation_count`, `last_success_at`, `last_error`) per service plus Google Antigravity evidence fields
+  - includes run-alignment diagnostics (`run_id_alignment`) and Cloud Storage run pointer (`cloud_storage_last_run_id`) for cross-service consistency checks
 - GET /health/ready -> confirms dependency readiness state
 - GET /pipeline/latest -> confirms predictive pipeline structure
 - GET /simulation/status -> confirms live simulation status contract
 - GET /system/metrics -> confirms measured runtime latency and write-cycle metrics
 
-## Final Verification Snapshot (Submission 2)
+## Final Verification Snapshot (Submission 3)
 
 Validation completed against current workspace and Cloud Run deployment.
 
-- Backend tests: `50 passed` (`pytest` with coverage output)
-- Frontend tests: `7 passed` (`vitest`)
+- Backend tests: `130 passed` (`pytest` with coverage output)
+- Frontend tests: `9 passed` (`vitest`)
 - Frontend production build: successful (`tsc -b && vite build`)
-- Cloud Run service: `flowstate-backend-00037-57n` serving 100% traffic
+- Cloud Run service: `flowstate-backend-00043-mtd` serving 100% traffic
 - Verified live endpoints after latest deploy:
-  - `GET /google-services/status` returns Firestore, Gemini, Cloud Run, Cloud Logging, BigQuery, and Cloud Storage status
-  - `GET /google-services/evidence` returns per-service operation metadata and pipeline evidence
+  - `GET /google-services/status` returns Firestore, Gemini, Cloud Run, Cloud Logging, BigQuery, Cloud Storage, Pub/Sub, and Google Antigravity status
+  - `GET /google-services/evidence` returns per-service operation metadata, Pub/Sub publication evidence, and antigravity evidence fields
+  - `GET /google-services/evidence` also returns `run_id_alignment` and `cloud_storage_last_run_id` to verify run consistency across pipeline, BigQuery, Cloud Storage, and Pub/Sub
+  - `GET /system/workflow` returns latest Pub/Sub event ID, publish timestamp, run ID, and downstream evidence pointer
   - `GET /system/info` returns dynamic `google_services` status payload
   - `GET /health/ready` returns `status: ready` with dependency states
 
@@ -97,6 +103,39 @@ curl https://flowstate-backend-156628510595.asia-south1.run.app/google-services/
 ```
 
 The workflow endpoint should show the latest Pub/Sub event ID, timestamp, run ID, and downstream evidence pointer.
+The evidence endpoint should show `run_id_alignment` booleans and matching run IDs after a fresh pipeline cycle.
+
+## Gemini Quota Resilience (Free-Tier Safe)
+
+The backend now uses a model ladder with automatic failover instead of a single hardcoded model.
+
+- Default ladder: `gemini-2.5-flash-lite`, `gemma-3-4b-it`, `gemma-3-1b-it`
+- If a model returns quota/rate/resource-exhausted errors, the agent automatically retries with the next model in the ladder
+- Active model information is exposed in `GET /google-services/status` for evaluator visibility
+
+Environment controls:
+
+- `GEMINI_MODEL_LADDER` for a global ladder
+- `GEMINI_ANALYST_MODELS`
+- `GEMINI_PREDICTOR_MODELS`
+- `GEMINI_DECISION_MODELS`
+- `GEMINI_COMMUNICATOR_MODELS`
+
+Example:
+
+```bash
+GEMINI_MODEL_LADDER=gemini-2.5-flash-lite,gemma-3-4b-it,gemma-3-1b-it
+```
+
+## Evidence Consistency (Cross-Instance)
+
+To avoid stale evidence when Cloud Run routes requests across instances:
+
+- Pub/Sub evidence is persisted in Firestore workflow proof metadata
+- BigQuery evidence is persisted and hydrated from Firestore workflow proof metadata
+- Cloud Storage evidence is persisted and hydrated from Firestore workflow proof metadata
+- `GET /google-services/evidence` computes run-ID alignment signals for pipeline, BigQuery, Cloud Storage, and Pub/Sub
+- `GET /system/impact` uses a configurable recent-history window (`IMPACT_HISTORY_LIMIT`, default `8`) so health improvements appear quickly after fixes
 
 ## Google SDK Integration Evidence
 
@@ -107,9 +146,12 @@ FlowState AI includes explicit Google SDK imports in backend runtime code:
 - `import google.cloud.logging as gcp_logging` in `backend/app/services/google_services.py`
 - `from google.cloud import bigquery` in `backend/app/services/bigquery_service.py`
 - `from google.cloud import storage` in `backend/app/services/cloud_storage_service.py`
+- `from google.cloud import pubsub_v1` in `backend/app/services/pubsub_service.py`
 - `import google.cloud.logging as gcp_logging` in `backend/app/main.py` (Cloud Run logging setup)
 
 These imports are wired to runtime status reporting through `GET /google-services/status`.
+
+Google Antigravity evaluator signal is exposed via `google_antigravity` in `GET /google-services/status`, `GET /google-services/evidence`, and `GET /system/workflow`.
 
 ## Security
 
@@ -520,6 +562,7 @@ pip install -r requirements.txt
 
 - Copy `backend/.env.example` to `backend/.env`.
 - Set `GEMINI_API_KEY`, `FIREBASE_PROJECT_ID`, and either `FIREBASE_CREDENTIALS_PATH` or `FIREBASE_CREDENTIALS_BASE64`.
+- Optionally set `GEMINI_MODEL_LADDER` (or per-agent model vars) to control quota failover behavior.
 - Keep the Firebase service account file private. Do not commit it.
 
 4. Run the backend.

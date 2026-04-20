@@ -16,19 +16,19 @@ BACKEND_ROOT = Path(__file__).resolve().parents[1]
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
-from app.api.routes_pipeline import router as pipeline_router
-from app.api.routes_simulation import router as simulation_router
-from app.api.routes_system import router as system_router
-from app.api.routes_zones import router as zones_router
-import app.api.routes_pipeline as routes_pipeline
-import app.api.routes_simulation as routes_simulation
-import app.api.routes_system as routes_system
-import app.api.routes_zones as routes_zones
-
 
 @pytest.fixture
 def app_client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
     """Builds an isolated app instance with all public routers mounted."""
+    from app.api.routes_pipeline import router as pipeline_router
+    from app.api.routes_simulation import router as simulation_router
+    from app.api.routes_system import router as system_router
+    from app.api.routes_zones import router as zones_router
+    import app.api.routes_pipeline as routes_pipeline
+    import app.api.routes_simulation as routes_simulation
+    import app.api.routes_system as routes_system
+    import app.api.routes_zones as routes_zones
+
     monkeypatch.setattr(routes_pipeline, "db", None)
     monkeypatch.setattr(routes_simulation, "db", None)
     monkeypatch.setattr(routes_system, "db", None)

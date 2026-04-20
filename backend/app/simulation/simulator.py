@@ -9,7 +9,7 @@ import random
 import logging
 from datetime import datetime, timezone
 
-from app.firebase_client import firebase_client, db
+from app.firebase_client import db
 from app.simulation.zone_config import ZONE_CONFIG
 from app.simulation.phase_controller import PhaseController, MatchPhase
 from app.models.zone_models import ZoneState, RiskLevel, TrendDirection
@@ -57,10 +57,13 @@ class VenueSimulator:
     
     def _calculate_risk(self, occupancy_pct: float) -> str:
         """Calculates strict risk level from occupancy percentage."""
-        if occupancy_pct >= 90: return RiskLevel.CRITICAL.value
-        elif occupancy_pct >= 80: return RiskLevel.HIGH.value
-        elif occupancy_pct >= 60: return RiskLevel.MEDIUM.value
-        else: return RiskLevel.LOW.value
+        if occupancy_pct >= 90:
+            return RiskLevel.CRITICAL.value
+        if occupancy_pct >= 80:
+            return RiskLevel.HIGH.value
+        if occupancy_pct >= 60:
+            return RiskLevel.MEDIUM.value
+        return RiskLevel.LOW.value
     
     def _calculate_trend(self, zone_id: str, current_pct: float) -> str:
         """
@@ -73,9 +76,11 @@ class VenueSimulator:
         prev_pct = self.previous_zone_states[zone_id]["occupancy_pct"]
         delta = current_pct - prev_pct
         
-        if delta > 2: return TrendDirection.RISING.value
-        elif delta < -2: return TrendDirection.FALLING.value
-        else: return TrendDirection.STABLE.value
+        if delta > 2:
+            return TrendDirection.RISING.value
+        if delta < -2:
+            return TrendDirection.FALLING.value
+        return TrendDirection.STABLE.value
     
     def _get_target_occupancy(self, zone_id: str) -> float:
         """
@@ -245,7 +250,7 @@ class VenueSimulator:
             try:
                 batch.commit()
                 break
-            except Exception as e:
+            except Exception:
                 logger.error(
                     {
                         "event": "simulator_firestore_commit_retry",

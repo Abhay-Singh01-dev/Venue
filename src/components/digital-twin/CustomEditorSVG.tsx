@@ -235,7 +235,6 @@ export function CustomEditorSVG({
     <svg
       viewBox={`0 0 ${CANVAS_W} ${CANVAS_H}`}
       className="w-full h-full"
-      aria-hidden="true"
       focusable="false"
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}

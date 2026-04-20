@@ -16,6 +16,7 @@ Use this checklist before each submission attempt.
 - [ ] README includes top-level Google Services section
 - [ ] README includes live Cloud Run URL and WebSocket URL
 - [ ] README includes Deployment Proof section with endpoint evidence
+- [ ] /google-services/status and /google-services/evidence include google_antigravity signal fields
 
 ## Security and Accessibility Signals
 

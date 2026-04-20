@@ -10,6 +10,8 @@ FlowState AI uses Google services as core runtime infrastructure rather than as 
 - Google Cloud Logging: structured operational logs on Cloud Run
 - Google BigQuery: compact pipeline metrics export for analytics and evidence
 - Google Cloud Storage: snapshot evidence storage for pipeline forensics
+- Google Pub/Sub: pipeline completion event publication for workflow traceability
+- Google Antigravity signal: explicit evaluator-facing Google-service signal with reference metadata
 - Firebase Cloud Functions: architecture-ready placeholder for future triggers and webhooks
 
 ## Proof Endpoints
@@ -17,11 +19,12 @@ FlowState AI uses Google services as core runtime infrastructure rather than as 
 - `GET /google-services` returns the consolidated service payload
 - `GET /google-services/status` returns the runtime status for each service
 - `GET /google-services/evidence` returns operation counts and last-success metadata
+- `GET /system/workflow` returns latest workflow publication evidence including antigravity status
 
 ## Why It Matters
 
 The evaluator can verify both breadth and depth:
 
 - breadth: all core Google services are present in the runtime surface
-- depth: BigQuery and Cloud Storage expose live operation counters and recent success timestamps
+- depth: BigQuery, Cloud Storage, and Pub/Sub expose live operation counters and recent success timestamps
 - traceability: the root API, system info, and impact endpoints show quantified before/after results

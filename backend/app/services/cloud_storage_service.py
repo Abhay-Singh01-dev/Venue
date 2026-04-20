@@ -16,6 +16,66 @@ _operation_count = 0
 _last_success_at: str | None = None
 _last_error: str | None = None
 _last_object_path: str | None = None
+_last_run_id: str | None = None
+
+
+def _get_firestore_db() -> Any | None:
+    """Returns the Firestore client when available without hard dependency."""
+    try:
+        from app.firebase_client import db as firestore_db
+
+        return firestore_db
+    except Exception:
+        return None
+
+
+def _persist_cloud_storage_evidence() -> None:
+    """Stores latest Cloud Storage proof in Firestore for cross-instance reads."""
+    firestore_db = _get_firestore_db()
+    if firestore_db is None:
+        return
+
+    try:
+        firestore_db.collection("system").document("workflow_proof").set(
+            {
+                "cloud_storage_last_success_at": _last_success_at,
+                "cloud_storage_last_error": _last_error,
+                "cloud_storage_last_object_path": _last_object_path,
+                "cloud_storage_last_run_id": _last_run_id,
+                "cloud_storage_operation_count": _operation_count,
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            },
+            merge=True,
+        )
+    except Exception:
+        return
+
+
+def _hydrate_cloud_storage_evidence_from_firestore() -> None:
+    """Loads Cloud Storage evidence from Firestore to avoid stale instance-local data."""
+    global _last_success_at, _last_error, _last_object_path, _last_run_id, _operation_count
+
+    firestore_db = _get_firestore_db()
+    if firestore_db is None:
+        return
+
+    try:
+        doc = firestore_db.collection("system").document("workflow_proof").get()
+        if not doc.exists:
+            return
+
+        payload = doc.to_dict() or {}
+        _last_success_at = payload.get("cloud_storage_last_success_at") or _last_success_at
+        _last_object_path = payload.get("cloud_storage_last_object_path") or _last_object_path
+        _last_run_id = payload.get("cloud_storage_last_run_id") or _last_run_id
+        if "cloud_storage_last_error" in payload:
+            _last_error = payload.get("cloud_storage_last_error")
+
+        persisted_count = payload.get("cloud_storage_operation_count")
+        if isinstance(persisted_count, int):
+            _operation_count = max(_operation_count, persisted_count)
+    except Exception:
+        return
 
 
 def _is_enabled() -> bool:
@@ -38,8 +98,9 @@ def _project_name() -> str | None:
 
 def get_cloud_storage_status() -> dict[str, Any]:
     """Returns runtime status and operation evidence for Cloud Storage snapshots."""
-    global _last_success_at, _last_error, _last_object_path
+    global _last_success_at, _last_error, _last_object_path, _last_run_id
 
+    running_on_cloud_run = bool(os.getenv("K_SERVICE"))
     configured = bool(_project_name()) and _is_enabled()
     sdk_available = storage is not None
 
@@ -51,8 +112,11 @@ def get_cloud_storage_status() -> dict[str, Any]:
     elif not _is_enabled():
         status = "disabled"
 
-    # Derive proof from bucket contents to survive multi-instance Cloud Run routing.
-    if status == "active":
+    if status == "active" and running_on_cloud_run:
+        _hydrate_cloud_storage_evidence_from_firestore()
+
+    # Derive proof from bucket contents when evidence has not yet been hydrated.
+    if status == "active" and (_last_object_path is None or _last_run_id is None):
         try:
             client = storage.Client(project=_project_name())
             bucket = client.bucket(_bucket_name())
@@ -60,6 +124,8 @@ def get_cloud_storage_status() -> dict[str, Any]:
             if blobs:
                 _last_object_path = blobs[0].name
                 _last_success_at = blobs[0].updated.isoformat() if blobs[0].updated else _last_success_at
+                if _last_object_path.endswith(".json"):
+                    _last_run_id = _last_object_path.rsplit("/", 1)[-1].removesuffix(".json")
         except Exception as exc:  # pragma: no cover - defensive runtime path
             _last_error = str(exc)
 
@@ -74,12 +140,13 @@ def get_cloud_storage_status() -> dict[str, Any]:
         "last_success_at": _last_success_at,
         "last_error": _last_error,
         "last_object_path": _last_object_path,
+        "last_run_id": _last_run_id,
     }
 
 
 def write_pipeline_snapshot_to_gcs(pipeline_output: dict[str, Any]) -> bool:
     """Best-effort write of compact pipeline snapshot JSON to Cloud Storage."""
-    global _operation_count, _last_success_at, _last_error, _last_object_path
+    global _operation_count, _last_success_at, _last_error, _last_object_path, _last_run_id
 
     _operation_count += 1
 
@@ -89,6 +156,7 @@ def write_pipeline_snapshot_to_gcs(pipeline_output: dict[str, Any]) -> bool:
     project = _project_name()
     if not project:
         _last_error = "missing_project"
+        _persist_cloud_storage_evidence()
         return False
 
     run_id = str(pipeline_output.get("run_id", "unknown"))
@@ -124,8 +192,11 @@ def write_pipeline_snapshot_to_gcs(pipeline_output: dict[str, Any]) -> bool:
 
         _last_success_at = datetime.now(timezone.utc).isoformat()
         _last_object_path = object_path
+        _last_run_id = run_id
         _last_error = None
+        _persist_cloud_storage_evidence()
         return True
     except Exception as exc:  # pragma: no cover - defensive runtime path
         _last_error = str(exc)
+        _persist_cloud_storage_evidence()
         return False

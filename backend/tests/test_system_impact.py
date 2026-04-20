@@ -21,6 +21,7 @@ def test_google_services_endpoint(app_client) -> None:
     assert "bigquery" in payload
     assert "cloud_storage" in payload
     assert "pubsub" in payload
+    assert "google_antigravity" in payload
 
 
 def test_workflow_proof_endpoint(app_client) -> None:
@@ -31,3 +32,4 @@ def test_workflow_proof_endpoint(app_client) -> None:
     assert "latest_published_event_id" in payload
     assert "downstream_evidence_pointer" in payload
     assert "pubsub" in payload["service_operations"]
+    assert "google_antigravity" in payload["google_services"]
