@@ -82,7 +82,9 @@ notification is reassuring and action-oriented."""
             remaining = int(_cooldown_until - now)
             logger.info(f"Agent 4 in Gemini cooldown ({remaining}s remaining); using fallback communication")
             _last_cooldown_log_at = now
-        return _communicator_fallback()
+        fallback = _communicator_fallback()
+        fallback["_fallback_reason"] = "cooldown"
+        return fallback
 
     start = now
     try:
@@ -91,7 +93,9 @@ notification is reassuring and action-oriented."""
         
         if not result:
             logger.warning("Agent 4 returned empty/invalid structured dict")
-            return _communicator_fallback()
+            fallback = _communicator_fallback()
+            fallback["_fallback_reason"] = "invalid_model_payload"
+            return fallback
 
         # Hard enforcement of max_lengths to prevent UI overflows
         if "attendee_notification" in result:
@@ -113,7 +117,9 @@ notification is reassuring and action-oriented."""
             )
         else:
             logger.error(f"Agent 4 Gemini call failed: {e}", exc_info=True)
-        return _communicator_fallback()
+        fallback = _communicator_fallback()
+        fallback["_fallback_reason"] = str(e)
+        return fallback
 
 
 def _communicator_fallback() -> dict:

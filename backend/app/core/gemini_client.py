@@ -19,6 +19,7 @@ logger = logging.getLogger(__name__)
 genai.configure(api_key=settings.gemini_api_key)
 
 _DEFAULT_MODEL_LADDER = (
+  "gemini-3.1-flash-lite-preview",
   "gemini-2.5-flash-lite",
   "gemma-3-4b-it",
   "gemma-3-1b-it",
@@ -28,6 +29,7 @@ _MODEL_FAILOVER_MARKERS = (
   "resourceexhausted",
   "quota",
   "429",
+  "developer instruction is not enabled",
   "permissiondenied",
   "403",
   "notfound",
@@ -63,6 +65,25 @@ def _resolve_model_ladder(agent_env_var: str) -> list[str]:
   return list(_DEFAULT_MODEL_LADDER)
 
 
+def _strip_response_mime_type(generation_config: Any) -> Any:
+  """Builds a compatible generation config for models that do not support JSON mode."""
+  if generation_config is None:
+    return None
+
+  try:
+    if hasattr(generation_config, "to_dict"):
+      payload = dict(generation_config.to_dict())
+    elif isinstance(generation_config, dict):
+      payload = dict(generation_config)
+    else:
+      return generation_config
+
+    payload.pop("response_mime_type", None)
+    return genai.GenerationConfig(**payload)
+  except Exception:
+    return generation_config
+
+
 class _ModelRouter:
   """Tries configured models in order and switches away from exhausted quotas."""
 
@@ -76,8 +97,15 @@ class _ModelRouter:
     self._role = role
     self._model_names = model_names
     self._generation_config = generation_config
+    self._plain_generation_config = _strip_response_mime_type(generation_config)
     self._system_instruction = system_instruction
-    self._models: dict[str, Any] = {}
+    self._models: dict[tuple[str, bool, bool], Any] = {}
+    self._model_supports_system_instruction: dict[str, bool] = {
+      model_name: True for model_name in model_names
+    }
+    self._model_supports_json_mode: dict[str, bool] = {
+      model_name: True for model_name in model_names
+    }
     self._preferred_model_name = model_names[0]
     self._active_model_name = model_names[0]
 
@@ -96,18 +124,89 @@ class _ModelRouter:
         ordered.append(model_name)
     return ordered
 
-  def _bind_model(self, model_name: str) -> Any:
-    model = self._models.get(model_name)
+  def _bind_model(self, model_name: str, use_system_instruction: bool, use_json_mode: bool) -> Any:
+    cache_key = (model_name, use_system_instruction, use_json_mode)
+    model = self._models.get(cache_key)
     if model is not None:
       return model
 
-    model = genai.GenerativeModel(
-      model_name=model_name,
-      generation_config=self._generation_config,
-      system_instruction=self._system_instruction,
-    )
-    self._models[model_name] = model
+    model_kwargs: dict[str, Any] = {
+      "model_name": model_name,
+      "generation_config": self._generation_config if use_json_mode else self._plain_generation_config,
+    }
+    if use_system_instruction:
+      model_kwargs["system_instruction"] = self._system_instruction
+
+    model = genai.GenerativeModel(**model_kwargs)
+    self._models[cache_key] = model
     return model
+
+  def _requires_inline_system_prompt(self, exc: Exception) -> bool:
+    message = str(exc).lower()
+    return (
+      "developer instruction is not enabled" in message
+      or "system instruction" in message
+      or "system_instruction" in message
+    )
+
+  def _requires_plain_text_mode(self, exc: Exception) -> bool:
+    message = str(exc).lower()
+    return (
+      "json mode is not enabled" in message
+      or "response_mime_type" in message
+      or "application/json" in message
+    )
+
+  def _prompt_for_mode(self, prompt: str, use_system_instruction: bool) -> str:
+    if use_system_instruction:
+      return prompt
+    return f"{self._system_instruction}\n\nUser request:\n{prompt}"
+
+  def _generate_with_model(
+    self,
+    model_name: str,
+    prompt: str,
+    request_options: dict[str, Any] | None,
+  ) -> Any:
+    prefer_system_instruction = self._model_supports_system_instruction.get(model_name, True)
+    prefer_json_mode = self._model_supports_json_mode.get(model_name, True)
+
+    use_system_instruction = prefer_system_instruction
+    use_json_mode = prefer_json_mode
+    last_exc: Exception | None = None
+    for _ in range(4):
+      try:
+        model = self._bind_model(model_name, use_system_instruction, use_json_mode)
+        request_prompt = self._prompt_for_mode(prompt, use_system_instruction)
+        response = model.generate_content(request_prompt, request_options=request_options)
+        if not use_system_instruction:
+          self._model_supports_system_instruction[model_name] = False
+        if not use_json_mode:
+          self._model_supports_json_mode[model_name] = False
+        return response
+      except Exception as exc:
+        last_exc = exc
+        if use_system_instruction and self._requires_inline_system_prompt(exc):
+          logger.warning(
+            "Gemini model %s does not support system_instruction for %s; retrying with inline prompt.",
+            model_name,
+            self._role,
+          )
+          use_system_instruction = False
+          continue
+        if use_json_mode and self._requires_plain_text_mode(exc):
+          logger.warning(
+            "Gemini model %s does not support JSON mode for %s; retrying without response_mime_type.",
+            model_name,
+            self._role,
+          )
+          use_json_mode = False
+          continue
+        raise
+
+    if last_exc is not None:
+      raise last_exc
+    raise RuntimeError(f"No generation modes available for model={model_name}")
 
   def _should_failover(self, exc: Exception) -> bool:
     message = str(exc).lower()
@@ -119,8 +218,7 @@ class _ModelRouter:
 
     for idx, model_name in enumerate(candidates):
       try:
-        model = self._bind_model(model_name)
-        response = model.generate_content(prompt, request_options=request_options)
+        response = self._generate_with_model(model_name, prompt, request_options)
         self._active_model_name = model_name
         self._preferred_model_name = model_name
         return response

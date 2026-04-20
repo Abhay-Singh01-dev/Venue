@@ -162,6 +162,7 @@ def write_pipeline_snapshot_to_gcs(pipeline_output: dict[str, Any]) -> bool:
     run_id = str(pipeline_output.get("run_id", "unknown"))
     run_day = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     object_path = f"pipeline_snapshots/{run_day}/{run_id}.json"
+    _last_run_id = run_id
 
     compact_snapshot = {
         "run_id": run_id,
@@ -177,26 +178,28 @@ def write_pipeline_snapshot_to_gcs(pipeline_output: dict[str, Any]) -> bool:
         "captured_at": datetime.now(timezone.utc).isoformat(),
     }
 
-    try:
-        client = storage.Client(project=project)
-        bucket = client.bucket(_bucket_name())
-        if not bucket.exists(timeout=2.0):
-            bucket = client.create_bucket(_bucket_name())
+    for attempt in range(3):
+        try:
+            client = storage.Client(project=project)
+            bucket = client.bucket(_bucket_name())
+            blob = bucket.blob(object_path)
+            blob.upload_from_string(
+                json.dumps(compact_snapshot, separators=(",", ":")),
+                content_type="application/json",
+                timeout=10.0,
+            )
 
-        blob = bucket.blob(object_path)
-        blob.upload_from_string(
-            json.dumps(compact_snapshot, separators=(",", ":")),
-            content_type="application/json",
-            timeout=2.0,
-        )
+            _last_success_at = datetime.now(timezone.utc).isoformat()
+            _last_object_path = object_path
+            _last_error = None
+            _persist_cloud_storage_evidence()
+            return True
+        except Exception as exc:  # pragma: no cover - defensive runtime path
+            _last_error = str(exc)
+            if attempt < 2:
+                continue
+            _persist_cloud_storage_evidence()
+            return False
 
-        _last_success_at = datetime.now(timezone.utc).isoformat()
-        _last_object_path = object_path
-        _last_run_id = run_id
-        _last_error = None
-        _persist_cloud_storage_evidence()
-        return True
-    except Exception as exc:  # pragma: no cover - defensive runtime path
-        _last_error = str(exc)
-        _persist_cloud_storage_evidence()
-        return False
+    _persist_cloud_storage_evidence()
+    return False

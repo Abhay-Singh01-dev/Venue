@@ -52,8 +52,7 @@ Cloud Run service:
 - region: asia-south1
 - project: promptwarsonline
 - url: https://flowstate-backend-156628510595.asia-south1.run.app
-- latest ready revision: flowstate-backend-00042-ntn
-- latest ready revision: flowstate-backend-00043-mtd
+- latest ready revision: flowstate-backend-00051-nc5
 - traffic: 100% on latest revision
 
 Evaluator-friendly proof endpoints:
@@ -78,7 +77,7 @@ Validation completed against current workspace and Cloud Run deployment.
 - Backend tests: `130 passed` (`pytest` with coverage output)
 - Frontend tests: `9 passed` (`vitest`)
 - Frontend production build: successful (`tsc -b && vite build`)
-- Cloud Run service: `flowstate-backend-00043-mtd` serving 100% traffic
+- Cloud Run service: `flowstate-backend-00051-nc5` serving 100% traffic
 - Verified live endpoints after latest deploy:
   - `GET /google-services/status` returns Firestore, Gemini, Cloud Run, Cloud Logging, BigQuery, Cloud Storage, Pub/Sub, and Google Antigravity status
   - `GET /google-services/evidence` returns per-service operation metadata, Pub/Sub publication evidence, and antigravity evidence fields
@@ -109,9 +108,11 @@ The evidence endpoint should show `run_id_alignment` booleans and matching run I
 
 The backend now uses a model ladder with automatic failover instead of a single hardcoded model.
 
-- Default ladder: `gemini-2.5-flash-lite`, `gemma-3-4b-it`, `gemma-3-1b-it`
+- Default ladder: `gemini-3.1-flash-lite-preview`, `gemini-2.5-flash-lite`, `gemma-3-4b-it`, `gemma-3-1b-it`
 - If a model returns quota/rate/resource-exhausted errors, the agent automatically retries with the next model in the ladder
+- If a model does not support system instruction or JSON mode, the runtime automatically retries with inline-prompt/plain-text compatibility mode
 - Active model information is exposed in `GET /google-services/status` for evaluator visibility
+- API key compatibility was validated against live generate-capable models and currently prefers `gemini-3.1-flash-lite-preview` as the primary model
 
 Environment controls:
 
@@ -120,11 +121,13 @@ Environment controls:
 - `GEMINI_PREDICTOR_MODELS`
 - `GEMINI_DECISION_MODELS`
 - `GEMINI_COMMUNICATOR_MODELS`
+- `PUBSUB_PUBLISH_TIMEOUT_SECONDS`
+- `PUBSUB_PUBLISH_ATTEMPTS`
 
 Example:
 
 ```bash
-GEMINI_MODEL_LADDER=gemini-2.5-flash-lite,gemma-3-4b-it,gemma-3-1b-it
+GEMINI_MODEL_LADDER=gemini-3.1-flash-lite-preview,gemini-2.5-flash-lite,gemma-3-4b-it,gemma-3-1b-it
 ```
 
 ## Evidence Consistency (Cross-Instance)

@@ -80,7 +80,9 @@ Include every zone in the predictions array."""
             remaining = int(_cooldown_until - now)
             logger.info(f"Agent 2 in Gemini cooldown ({remaining}s remaining); using fallback predictions")
             _last_cooldown_log_at = now
-        return _predictor_fallback(zone_states)
+        fallback = _predictor_fallback(zone_states)
+        fallback["_fallback_reason"] = "cooldown"
+        return fallback
 
     start = now
     try:
@@ -89,7 +91,9 @@ Include every zone in the predictions array."""
         
         if not result:
             logger.warning("Agent 2 returned empty/invalid structured dict")
-            return _predictor_fallback(zone_states)
+            fallback = _predictor_fallback(zone_states)
+            fallback["_fallback_reason"] = "invalid_model_payload"
+            return fallback
 
         # Enforce all zones prediction completeness
         predictions = result.get("predictions", [])
@@ -123,7 +127,9 @@ Include every zone in the predictions array."""
             )
         else:
             logger.error(f"Agent 2 Gemini call failed: {e}", exc_info=True)
-        return _predictor_fallback(zone_states)
+        fallback = _predictor_fallback(zone_states)
+        fallback["_fallback_reason"] = str(e)
+        return fallback
 
 
 def _predictor_fallback(zone_states: list[dict]) -> dict:

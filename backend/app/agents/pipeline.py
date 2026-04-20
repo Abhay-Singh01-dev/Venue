@@ -345,10 +345,12 @@ def run_pipeline() -> dict:
 
         retry_delays = [0.5, 1.0]
         fallback_reason = None
+        fallback_reasons: list[str] = []
         analyst_output = {}
         predictor_output = {}
         decision_output = {}
         comm_output = {}
+        quota_markers = ("resourceexhausted", "quota", "429", "rate limit")
 
         for attempt in range(3):
             analyst_output = run_analyst(zone_states)
@@ -361,8 +363,18 @@ def run_pipeline() -> dict:
                 for output in (analyst_output, predictor_output, decision_output, comm_output)
             )
             if fallback_detected:
-                fallback_reason = "Gemini API failure"
-                if attempt < 2:
+                fallback_reasons = [
+                    str(output.get("_fallback_reason", "")).strip()
+                    for output in (analyst_output, predictor_output, decision_output, comm_output)
+                    if output.get("_fallback")
+                ]
+                quota_fallback = any(
+                    any(marker in reason.lower() for marker in quota_markers)
+                    for reason in fallback_reasons
+                    if reason
+                )
+                fallback_reason = "Gemini quota exhaustion" if quota_fallback else "Gemini API failure"
+                if attempt < 2 and not quota_fallback:
                     backoff_seconds = retry_delays[attempt]
                     logger.warning(
                         {
@@ -372,6 +384,7 @@ def run_pipeline() -> dict:
                             "attempt": attempt + 1,
                             "max_attempts": 3,
                             "backoff_seconds": backoff_seconds,
+                            "fallback_reasons": fallback_reasons,
                         }
                     )
                     time.sleep(backoff_seconds)

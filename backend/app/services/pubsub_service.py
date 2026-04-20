@@ -105,21 +105,21 @@ def _project_name() -> str | None:
 
 
 def _publish_timeout_seconds() -> float:
-    raw = os.getenv("PUBSUB_PUBLISH_TIMEOUT_SECONDS", "5.0").strip()
+    raw = os.getenv("PUBSUB_PUBLISH_TIMEOUT_SECONDS", "10.0").strip()
     try:
         timeout = float(raw)
     except ValueError:
-        timeout = 5.0
-    return min(max(timeout, 1.0), 15.0)
+        timeout = 10.0
+    return min(max(timeout, 2.0), 20.0)
 
 
 def _publish_attempts() -> int:
-    raw = os.getenv("PUBSUB_PUBLISH_ATTEMPTS", "2").strip()
+    raw = os.getenv("PUBSUB_PUBLISH_ATTEMPTS", "3").strip()
     try:
         attempts = int(raw)
     except ValueError:
-        attempts = 2
-    return min(max(attempts, 1), 3)
+        attempts = 3
+    return min(max(attempts, 1), 4)
 
 
 def _format_error(exc: Exception) -> str:
@@ -181,6 +181,7 @@ def publish_pipeline_completed_event(
 
     run_id = str(pipeline_output.get("run_id", "unknown"))
     event_id = f"{run_id}-{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ')}"
+    _last_run_id = run_id
 
     try:
         publisher = pubsub_v1.PublisherClient()

@@ -211,6 +211,8 @@ def log_pipeline_metrics_to_bigquery(pipeline_output: dict[str, Any]) -> bool:
     global _last_insert_at, _last_error, _last_exported_run_id, _operation_count, _last_success_at
 
     _operation_count += 1
+    run_id = str(pipeline_output.get("run_id", ""))
+    _last_exported_run_id = run_id
 
     if not _is_enabled() or bigquery is None:
         return False
@@ -223,7 +225,7 @@ def log_pipeline_metrics_to_bigquery(pipeline_output: dict[str, Any]) -> bool:
 
     table_id = f"{project}.{_dataset_name()}.{_table_name()}"
     row = {
-        "run_id": str(pipeline_output.get("run_id", "")),
+        "run_id": run_id,
         "run_at": str(pipeline_output.get("run_at", datetime.now(timezone.utc).isoformat())),
         "source": str(pipeline_output.get("source", "unknown")),
         "pipeline_health": str(pipeline_output.get("pipeline_health", "unknown")),

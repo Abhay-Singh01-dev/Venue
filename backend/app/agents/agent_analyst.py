@@ -72,7 +72,9 @@ Return analysis as JSON."""
             remaining = int(_cooldown_until - now)
             logger.info(f"Agent 1 in Gemini cooldown ({remaining}s remaining); using fallback analysis")
             _last_cooldown_log_at = now
-        return _analyst_fallback(zone_states)
+        fallback = _analyst_fallback(zone_states)
+        fallback["_fallback_reason"] = "cooldown"
+        return fallback
 
     start = now
     try:
@@ -80,7 +82,9 @@ Return analysis as JSON."""
         result = safe_json_load(response.text)
         if not result:
             logger.warning("Agent 1 returned empty/invalid structured dict")
-            return _analyst_fallback(zone_states)
+            fallback = _analyst_fallback(zone_states)
+            fallback["_fallback_reason"] = "invalid_model_payload"
+            return fallback
             
         duration = int((time.time() - start) * 1000)
         _record_success()
@@ -95,7 +99,9 @@ Return analysis as JSON."""
             )
         else:
             logger.error(f"Agent 1 Gemini call failed: {e}", exc_info=True)
-        return _analyst_fallback(zone_states)
+        fallback = _analyst_fallback(zone_states)
+        fallback["_fallback_reason"] = str(e)
+        return fallback
 
 
 def _analyst_fallback(zone_states: list[dict]) -> dict:

@@ -78,7 +78,9 @@ Ensure variety: include gate, staff, signage, and routing actions."""
             remaining = int(_cooldown_until - now)
             logger.info(f"Agent 3 in Gemini cooldown ({remaining}s remaining); using fallback decisions")
             _last_cooldown_log_at = now
-        return _decision_fallback(predictor_output)
+        fallback = _decision_fallback(predictor_output)
+        fallback["_fallback_reason"] = "cooldown"
+        return fallback
 
     start = now
     try:
@@ -87,7 +89,9 @@ Ensure variety: include gate, staff, signage, and routing actions."""
         
         if not result:
             logger.warning("Agent 3 returned empty/invalid structured dict")
-            return _decision_fallback(predictor_output)
+            fallback = _decision_fallback(predictor_output)
+            fallback["_fallback_reason"] = "invalid_model_payload"
+            return fallback
             
         decisions = result.get("decisions", [])
         if not decisions:
@@ -109,7 +113,9 @@ Ensure variety: include gate, staff, signage, and routing actions."""
             )
         else:
             logger.error(f"Agent 3 Gemini call failed: {e}", exc_info=True)
-        return _decision_fallback(predictor_output)
+        fallback = _decision_fallback(predictor_output)
+        fallback["_fallback_reason"] = str(e)
+        return fallback
 
 
 def _decision_fallback(predictor_output: dict) -> dict:
